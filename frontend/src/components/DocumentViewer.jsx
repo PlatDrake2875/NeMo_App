@@ -95,6 +95,15 @@ export function DocumentViewer({ onBackToChat }) {
 		setSelectedSource(event.target.value);
 	};
 
+	// --- Handle back to chat with defensive check ---
+	const handleBackClick = () => {
+		if (typeof onBackToChat === "function") {
+			onBackToChat();
+		} else {
+			console.error("onBackToChat is not a function:", onBackToChat);
+		}
+	};
+
 	return (
 		<div className={styles.documentViewer}>
 			<header className={styles.viewerHeader}>
@@ -131,7 +140,11 @@ export function DocumentViewer({ onBackToChat }) {
 							</select>
 						</div>
 					)}
-					<button onClick={onBackToChat} className={styles.backButton}>
+					<button
+						type="button"
+						onClick={handleBackClick}
+						className={styles.backButton}
+					>
 						&larr; Back to Chat
 					</button>
 				</div>

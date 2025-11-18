@@ -1,6 +1,6 @@
 # backend/schemas.py
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,38 +20,122 @@ class Message(BaseModel):
 
 
 # --- Pydantic Models (Existing) ---
-class OllamaModelInfo(BaseModel):
+class ModelInfo(BaseModel):
     name: str
-    modified_at: str  # Storing as string as per your original model
+    modified_at: str  # Storing as string
     size: int
 
     @classmethod
-    def from_ollama(cls, raw: dict[str, Any]) -> Optional["OllamaModelInfo"]:
-        # raw dictionary comes from an ollama.Model object converted to dict
-        model_name = raw.get("name") or raw.get(
-            "model"
-        )  # 'model' is the key in ollama.Model
+    def from_openai(cls, raw: dict[str, Any]) -> Optional["ModelInfo"]:
+        # vLLM OpenAI-compatible API returns: {"id": "model-name", "object": "model", ...}
+        model_name = raw.get("id")
         if not model_name:
             return None
 
-        modified_at_val = raw.get("modified_at")
-        modified_at_str = ""
-        if isinstance(modified_at_val, datetime):
-            modified_at_str = modified_at_val.isoformat()
-        elif isinstance(modified_at_val, str):
-            # Attempt to parse if it's a string that might need conversion
+        # vLLM doesn't provide modified_at or size in the API response
+        # We'll use placeholder values
+        created_timestamp = raw.get("created", 0)
+        modified_at_str = "N/A"
+        if created_timestamp:
             try:
-                # Ensure timezone info is handled correctly for ISO format
-                dt_obj = datetime.fromisoformat(modified_at_val.replace("Z", "+00:00"))
+                dt_obj = datetime.fromtimestamp(created_timestamp)
                 modified_at_str = dt_obj.isoformat()
-            except ValueError:
-                modified_at_str = modified_at_val  # Keep as is if parsing fails
-        else:
-            modified_at_str = "N/A"
+            except (ValueError, OSError):
+                modified_at_str = "N/A"
 
         return cls(
-            name=model_name, modified_at=modified_at_str, size=raw.get("size", 0)
+            name=model_name,
+            modified_at=modified_at_str,
+            size=0  # vLLM API doesn't expose model size
         )
+
+
+# Backward compatibility alias - DEPRECATED: Use ModelInfo instead
+# This will be removed in a future version
+OllamaModelInfo = ModelInfo
+
+
+# --- Model Download and Validation Schemas ---
+class ModelValidationRequest(BaseModel):
+    """Request to validate a HuggingFace model."""
+
+    model_id: str = Field(
+        ..., description="HuggingFace model ID (e.g., 'meta-llama/Llama-3.1-8B')"
+    )
+    token: Optional[str] = Field(None, description="HuggingFace API token for gated models")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "token": "hf_..."
+            }
+        }
+
+
+class ModelMetadataResponse(BaseModel):
+    """Response containing model metadata."""
+
+    model_id: str = Field(..., description="HuggingFace model ID")
+    is_gated: bool = Field(..., description="Whether the model requires authentication")
+    size_bytes: int = Field(..., description="Model size in bytes")
+    size_gb: float = Field(..., description="Model size in GB")
+    downloads: int = Field(..., description="Number of downloads on HuggingFace")
+    pipeline_tag: Optional[str] = Field(None, description="Model pipeline tag")
+    tags: list[str] = Field(default_factory=list, description="Model tags")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "is_gated": True,
+                "size_bytes": 16000000000,
+                "size_gb": 14.9,
+                "downloads": 1000000,
+                "pipeline_tag": "text-generation",
+                "tags": ["llama", "instruct", "chat"]
+            }
+        }
+
+
+class ModelDownloadRequest(BaseModel):
+    """Request to download a model from HuggingFace."""
+
+    model_id: str = Field(
+        ..., description="HuggingFace model ID to download"
+    )
+    token: Optional[str] = Field(
+        None, description="HuggingFace API token for gated models"
+    )
+    custom_name: Optional[str] = Field(
+        None, description="Custom name for the model (defaults to model_id)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "token": "hf_...",
+                "custom_name": "llama-3.1-8b"
+            }
+        }
+
+
+class ModelLoadRequest(BaseModel):
+    """Request to load a downloaded model into vLLM."""
+
+    model_id: str = Field(..., description="HuggingFace model ID to load")
+    served_model_name: Optional[str] = Field(
+        None, description="Name to serve the model as (defaults to model_id)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+                "served_model_name": "llama-3.1-8b"
+            }
+        }
 
 
 class LegacyChatRequest(BaseModel):
@@ -105,8 +189,8 @@ class HealthStatusDetail(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    ollama: HealthStatusDetail
-    chromadb: HealthStatusDetail
+    vllm: HealthStatusDetail
+    postgres: HealthStatusDetail
 
 
 # --- Schemas for Document Chunks (Existing) ---
@@ -251,3 +335,258 @@ class ChatStreamChunk(BaseModel):
 
     class Config:
         json_schema_extra = {"example": {"token": "Hello, I'm doing well!"}}
+
+
+# --- Dataset Registry Schemas ---
+class EmbedderConfig(BaseModel):
+    """Configuration for an embedding model."""
+
+    model_name: str = Field(..., description="Name of the embedding model (e.g., 'all-MiniLM-L6-v2')")
+    model_type: str = Field(
+        default="huggingface",
+        description="Type of embedding model ('huggingface', 'openai', 'custom')"
+    )
+    dimensions: Optional[int] = Field(
+        None,
+        description="Embedding dimensions (auto-detected if not provided)"
+    )
+    model_kwargs: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional kwargs for model initialization"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_name": "all-MiniLM-L6-v2",
+                "model_type": "huggingface",
+                "dimensions": 384,
+                "model_kwargs": {}
+            }
+        }
+
+
+class DatasetCreateRequest(BaseModel):
+    """Request schema for creating a new dataset."""
+
+    name: str = Field(..., description="Unique name for the dataset", min_length=1, max_length=100)
+    description: Optional[str] = Field(None, description="Description of the dataset")
+    embedder_config: EmbedderConfig = Field(..., description="Embedder configuration for this dataset")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "aviation_docs_minilm",
+                "description": "Aviation documentation with MiniLM embeddings",
+                "embedder_config": {
+                    "model_name": "all-MiniLM-L6-v2",
+                    "model_type": "huggingface",
+                    "dimensions": 384
+                }
+            }
+        }
+
+
+class DatasetMetadata(BaseModel):
+    """Metadata about a dataset."""
+
+    created_at: datetime
+    updated_at: datetime
+    document_count: int = 0
+    chunk_count: int = 0
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "created_at": "2025-11-18T10:00:00Z",
+                "updated_at": "2025-11-18T15:30:00Z",
+                "document_count": 25,
+                "chunk_count": 1250
+            }
+        }
+
+
+class DatasetInfo(BaseModel):
+    """Information about a dataset."""
+
+    id: int
+    name: str
+    description: Optional[str]
+    collection_name: str
+    embedder_config: EmbedderConfig
+    metadata: DatasetMetadata
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": 1,
+                "name": "aviation_docs_minilm",
+                "description": "Aviation documentation with MiniLM embeddings",
+                "collection_name": "dataset_aviation_docs_minilm",
+                "embedder_config": {
+                    "model_name": "all-MiniLM-L6-v2",
+                    "model_type": "huggingface",
+                    "dimensions": 384
+                },
+                "metadata": {
+                    "created_at": "2025-11-18T10:00:00Z",
+                    "updated_at": "2025-11-18T15:30:00Z",
+                    "document_count": 25,
+                    "chunk_count": 1250
+                }
+            }
+        }
+
+
+class DatasetListResponse(BaseModel):
+    """Response schema for listing datasets."""
+
+    count: int
+    datasets: list[DatasetInfo]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "count": 2,
+                "datasets": [
+                    {
+                        "id": 1,
+                        "name": "aviation_docs_minilm",
+                        "description": "Aviation docs with MiniLM",
+                        "collection_name": "dataset_aviation_docs_minilm",
+                        "embedder_config": {
+                            "model_name": "all-MiniLM-L6-v2",
+                            "model_type": "huggingface",
+                            "dimensions": 384
+                        },
+                        "metadata": {
+                            "created_at": "2025-11-18T10:00:00Z",
+                            "updated_at": "2025-11-18T15:30:00Z",
+                            "document_count": 25,
+                            "chunk_count": 1250
+                        }
+                    }
+                ]
+            }
+        }
+
+
+# --- Chunking Configuration Schemas ---
+class ChunkingMethodInfo(BaseModel):
+    """Information about a chunking method."""
+
+    name: str = Field(..., description="Display name of the chunking method")
+    description: str = Field(..., description="Description of how this method works")
+    default_params: Dict[str, Any] = Field(..., description="Default parameters for this method")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Recursive Character Splitter",
+                "description": "Splits text recursively by trying different separators",
+                "default_params": {"chunk_size": 1000, "chunk_overlap": 200}
+            }
+        }
+
+
+class ChunkingMethodsResponse(BaseModel):
+    """Response with all available chunking methods."""
+
+    methods: Dict[str, ChunkingMethodInfo]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "methods": {
+                    "recursive": {
+                        "name": "Recursive Character Splitter",
+                        "description": "Splits text recursively",
+                        "default_params": {"chunk_size": 1000, "chunk_overlap": 200}
+                    }
+                }
+            }
+        }
+
+
+class RechunkRequest(BaseModel):
+    """Request to re-chunk a document with a new chunking method."""
+
+    dataset_name: str = Field(..., description="Dataset containing the document")
+    original_filename: str = Field(..., description="Original filename of the document to re-chunk")
+    chunking_method: str = Field(
+        default="recursive",
+        description="New chunking method to apply: recursive, fixed, or semantic"
+    )
+    chunk_size: int = Field(default=1000, description="Chunk size in characters")
+    chunk_overlap: int = Field(default=200, description="Overlap between chunks")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "dataset_name": "test_minilm",
+                "original_filename": "document.pdf",
+                "chunking_method": "semantic",
+                "chunk_size": 1000,
+                "chunk_overlap": 200
+            }
+        }
+
+
+class RechunkResponse(BaseModel):
+    """Response from re-chunking operation."""
+
+    message: str
+    original_filename: str
+    chunks_created: int
+    chunking_method: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "Document re-chunked successfully",
+                "original_filename": "document.pdf",
+                "chunks_created": 42,
+                "chunking_method": "semantic"
+            }
+        }
+
+
+class DocumentSource(BaseModel):
+    """Information about a document source."""
+
+    original_filename: str
+    chunk_count: int
+    chunking_method: Optional[str] = None
+    chunk_size: Optional[int] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "original_filename": "manual.pdf",
+                "chunk_count": 125,
+                "chunking_method": "recursive",
+                "chunk_size": 1000
+            }
+        }
+
+
+class DocumentSourcesResponse(BaseModel):
+    """Response with list of document sources."""
+
+    count: int
+    documents: List[DocumentSource]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "count": 2,
+                "documents": [
+                    {
+                        "original_filename": "manual.pdf",
+                        "chunk_count": 125,
+                        "chunking_method": "recursive",
+                        "chunk_size": 1000
+                    }
+                ]
+            }
+        }

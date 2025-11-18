@@ -132,7 +132,7 @@ export function usePersistentSessions(
 		);
 
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [initialActiveId]); // Remove setActiveSessionIdDirectly from dependencies
+	}, []); // Only run once on mount - don't re-initialize on activeSessionId changes
 
 	// --- Effect 2: Save sessions to localStorage whenever they change (AFTER init) ---
 	useEffect(() => {

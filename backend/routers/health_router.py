@@ -6,15 +6,14 @@ Handles HTTP concerns only, business logic is in services.health.HealthService.
 
 from typing import Optional
 
-import chromadb
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 from deps import get_health_service
 from rag_components import (
-    get_optional_chroma_client,
-    get_optional_ollama_chat_for_rag,
+    get_optional_pg_connection,
+    get_optional_vllm_chat_for_rag,
 )
 from schemas import HealthResponse
 from services.health import HealthService
@@ -22,25 +21,21 @@ from services.health import HealthService
 router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("", response_model=HealthResponse)
+@router.get("")
 async def health_check_endpoint(
     health_service: HealthService = Depends(get_health_service),
-    chroma_client: Optional[chromadb.HttpClient] = Depends(get_optional_chroma_client),
-    ollama_chat_for_rag: Optional[ChatOllama] = Depends(
-        get_optional_ollama_chat_for_rag
+    pg_connection: Optional[str] = Depends(get_optional_pg_connection),
+    vllm_chat_for_rag: Optional[ChatOpenAI] = Depends(
+        get_optional_vllm_chat_for_rag
     ),
 ):
-    response_payload = await health_service.perform_health_check(
-        chroma_client, ollama_chat_for_rag
+    # Service returns either HealthResponse or JSONResponse with 503 status
+    return await health_service.perform_health_check(
+        pg_connection, vllm_chat_for_rag
     )
 
-    # Handle HTTP status code based on overall health
-    if response_payload.status == "error":
-        detail_payload = (
-            response_payload.model_dump()
-            if hasattr(response_payload, "model_dump")
-            else response_payload.dict()
-        )
-        return JSONResponse(status_code=503, content=detail_payload)
 
-    return response_payload
+@router.get("/live")
+async def liveness_check():
+    """Simple liveness check for container orchestration - returns 200 if server is up"""
+    return {"status": "ok"}

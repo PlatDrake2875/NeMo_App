@@ -1,108 +1,105 @@
-// HIA/frontend/src/components/ChatInterface.jsx
-import { useRef } from "react";
 import { ChatForm } from "./ChatForm";
 import { ChatHistory } from "./ChatHistory";
-import styles from "./ChatInterface.module.css"; // Import CSS Module
 import { Header } from "./Header";
-import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { MessageCircle } from "lucide-react";
 
 export function ChatInterface({
-	activeSessionId,
-	activeSessionName, // Receive calculated name from App
-	chatHistory,
-	onSubmit,
-	onClearHistory,
-	onDownloadHistory,
-	isSubmitting,
-	isDarkMode,
-	toggleTheme,
-	availableModels,
-	selectedModel,
-	onModelChange,
-	modelsLoading,
-	modelsError,
-	isInitialized, // Receive initialization status
-	sessionAgents, // New prop mapping sessionId to selected agent
+  activeSessionId,
+  activeSessionName,
+  chatHistory,
+  onSubmit,
+  onClearHistory,
+  onDownloadHistory,
+  isSubmitting,
+  isDarkMode,
+  toggleTheme,
+  availableModels,
+  selectedModel,
+  onModelChange,
+  modelsLoading,
+  modelsError,
+  isInitialized,
+  sessionAgents,
+  onRefreshModels,
 }) {
-	const chatContainerRef = useRef(null);
-	const bottomOfChatRef = useRef(null); // Ref for scroll-to-bottom button logic
+  // Determine general disabled state
+  const isDisabled =
+    !isInitialized ||
+    !activeSessionId ||
+    modelsLoading ||
+    !!modelsError ||
+    isSubmitting;
 
-	// Determine general disabled state
-	const isDisabled =
-		!isInitialized ||
-		!activeSessionId ||
-		modelsLoading ||
-		!!modelsError ||
-		isSubmitting;
-	// Determine if form specifically should be disabled
-	const isFormDisabled = isDisabled || !selectedModel;
+  // Determine if form specifically should be disabled
+  const isFormDisabled = isDisabled || !selectedModel;
 
-	return (
-		// Apply styles using the imported object
-		<main className={styles.chatInterface}>
-			<Header
-				// Pass activeSessionName instead of activeSessionId for title display
-				activeSessionName={activeSessionName}
-				chatHistory={chatHistory}
-				clearChatHistory={onClearHistory}
-				downloadChatHistory={onDownloadHistory}
-				disabled={isDisabled} // General disabled state for header actions
-				isDarkMode={isDarkMode}
-				toggleTheme={toggleTheme}
-				availableModels={availableModels}
-				selectedModel={selectedModel}
-				onModelChange={onModelChange}
-				modelsLoading={modelsLoading}
-				modelsError={modelsError}
-			/>
-			{/* Use chatArea style */}
-			<div className={styles.chatArea} ref={chatContainerRef}>
-				{!isInitialized ? (
-					<div className={styles.noChatSelected}>
-						{" "}
-						{/* Use module style */}
-						<p>Loading sessions...</p>
-					</div>
-				) : activeSessionId ? (
-					// Check if this session has an agent selected
-					sessionAgents[activeSessionId] ? (
-						<ChatHistory chatHistory={chatHistory} />
-					) : (
-						<div className={styles.noChatSelected}>
-							{" "}
-							{/* Use module style */}
-							<p>Please select an AI assistant to start chatting...</p>
-						</div>
-					)
-				) : (
-					<div className={styles.noChatSelected}>
-						{" "}
-						{/* Use module style */}
-						<p>Select a chat or start a new one.</p>
-					</div>
-				)}
-				{/* Element to help scroll-to-bottom logic */}
-				<div ref={bottomOfChatRef} style={{ height: "1px" }} />
-			</div>
+  // Check if agent is selected for this session
+  const hasAgent = sessionAgents[activeSessionId] !== undefined;
 
-			{/* Conditionally render input area only if initialized, chat is selected, and agent is selected */}
-			{isInitialized && activeSessionId && sessionAgents[activeSessionId] && (
-				// Use chatInputArea style
-				<div className={styles.chatInputArea}>
-					<ChatForm
-						onSubmit={onSubmit}
-						disabled={isFormDisabled} // Pass specific disabled state for form
-					/>
-				</div>
-			)}
+  return (
+    <main className="flex flex-col h-full bg-background">
+      <Header
+        activeSessionName={activeSessionName}
+        chatHistory={chatHistory}
+        clearChatHistory={onClearHistory}
+        downloadChatHistory={onDownloadHistory}
+        disabled={isDisabled}
+        isDarkMode={isDarkMode}
+        toggleTheme={toggleTheme}
+        availableModels={availableModels}
+        selectedModel={selectedModel}
+        onModelChange={onModelChange}
+        modelsLoading={modelsLoading}
+        modelsError={modelsError}
+        onRefreshModels={onRefreshModels}
+      />
 
-			{/* Only show scroll button if initialized, there's an active chat, and agent is selected */}
-			{isInitialized && activeSessionId && sessionAgents[activeSessionId] && (
-				<ScrollToBottomButton
-					containerRef={chatContainerRef}
-					targetRef={bottomOfChatRef}
-				/>
-			)}
-		</main>
-	);
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {!isInitialized ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center space-y-3">
+              <div className="animate-pulse">
+                <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              </div>
+              <p className="text-muted-foreground">Loading sessions...</p>
+            </div>
+          </div>
+        ) : activeSessionId ? (
+          hasAgent ? (
+            <ChatHistory chatHistory={chatHistory} isLoading={isSubmitting} />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center space-y-3 max-w-md px-6">
+                <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-foreground">
+                  Select an AI Assistant
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Please select an AI assistant to start chatting or skip to continue without one.
+                </p>
+              </div>
+            </div>
+          )
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center space-y-3 max-w-md px-6">
+              <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-foreground">
+                No Chat Selected
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Select a chat from the sidebar or start a new one to begin.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input Area - Only show when ready */}
+      {isInitialized && activeSessionId && hasAgent && (
+        <ChatForm onSubmit={onSubmit} disabled={isFormDisabled} />
+      )}
+    </main>
+  );
 }

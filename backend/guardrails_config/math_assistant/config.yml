@@ -1,10 +1,11 @@
 # Ultra-minimal NeMo Guardrails config without external dependencies
 models:
   - type: main
-    engine: ollama
-    model: gemma3:latest
+    engine: openai
+    model: meta-llama/Llama-3.2-3B-Instruct
     parameters:
-      base_url: "http://localhost:11434"
+      base_url: "http://localhost:8000/v1"
+      api_key: "EMPTY"
 
 instructions:
   - type: general

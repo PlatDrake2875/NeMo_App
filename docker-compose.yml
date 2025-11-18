@@ -1,9 +1,40 @@
-# Minimal docker-compose.yml for dependencies only
-# Run FastAPI locally with: uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-# Note: Uses your local Ollama installation instead of containerized version
+# Docker Compose configuration for full-stack deployment
+# Backend now runs in Docker with hot reload support
+# Note: Uses containerized vLLM with GPU support for inference
 
 services:
-  # Frontend - only when you need the UI
+  # Backend API - FastAPI with hot reload
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /app/.venv  # Prevent overwriting virtual env
+      - vllm_cache:/root/.cache/huggingface  # Share HF cache with vLLM for model downloads
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=nemo_rag
+      - POSTGRES_USER=nemo_user
+      - POSTGRES_PASSWORD=nemo_password
+      - VLLM_BASE_URL=http://vllm:8000  # Access vLLM service
+      - VLLM_MODEL=meta-llama/Llama-3.2-3B-Instruct
+      - EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+      - USE_GUARDRAILS=false
+      - RAG_ENABLED=false
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # For downloading gated models
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    profiles: ["fullstack"]
+  # Frontend - React with Vite HMR
   frontend:
     build: ./frontend
     ports:
@@ -12,26 +43,111 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_BASE_URL=http://localhost:8000  # Points to local FastAPI
+      - VITE_API_BASE_URL=http://backend:8000  # Points to containerized backend
       - CHOKIDAR_USEPOLLING=true
-    profiles: ["ui"]  # Optional - only run when needed
+    depends_on:
+      backend:
+        condition: service_healthy
+    profiles: ["fullstack"]  # Part of full stack deployment
 
-  # ChromaDB for vector storage - only when you need RAG
-  chromadb:
-    image: chromadb/chroma:latest
+  # PostgreSQL with pgvector for vector storage - required for RAG features
+  postgres:
+    image: pgvector/pgvector:pg16
     ports:
-      - "8001:8000"
+      - "5432:5432"
     volumes:
-      - chroma_data:/chroma/chroma
-    profiles: ["rag"] 
+      - postgres_data:/var/lib/postgresql/data
+    profiles: ["fullstack"]
     environment:
-      - CHROMA_SERVER_HOST=0.0.0.0
-      - CHROMA_SERVER_PORT=8000
+      - POSTGRES_DB=nemo_rag
+      - POSTGRES_USER=nemo_user
+      - POSTGRES_PASSWORD=nemo_password
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD-SHELL", "pg_isready -U nemo_user -d nemo_rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # vLLM GPU - OpenAI-compatible LLM inference server with GPU support
+  # IMPORTANT: Downloaded models are cached in vllm_cache volume
+  # To switch models:
+  #   1. Use the UI to download a new model (it will be cached)
+  #   2. Update the --model flag below to the new HuggingFace model ID
+  #   3. Restart the vLLM service: docker compose --profile gpu restart vllm-gpu
+  #
+  # For multi-model support (experimental in vLLM):
+  #   - Remove --model and --served-model-name flags
+  #   - Use vLLM's model loading API endpoints
+  #   - Note: This feature is still evolving in vLLM
+  vllm-gpu:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8002:8000"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface  # Shared cache for downloaded models
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # Required for gated models
+      - HF_HOME=/root/.cache/huggingface  # Explicit cache location
+    command:
+      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
+      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
+      - --host=0.0.0.0
+      - --port=8000
+      - --trust-remote-code
+      - --max-model-len=36976
+      - --max-num-seqs=64
+      - --download-dir=/root/.cache/huggingface  # Use shared cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles: ["gpu"]
+    networks:
+      default:
+        aliases:
+          - vllm  # Backend references this service as "vllm"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 120s  # Model download and loading can take time
+
+  # vLLM CPU - OpenAI-compatible LLM inference server (CPU-only mode)
+  # See vllm-gpu comments above for model switching instructions
+  vllm-cpu:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8002:8000"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface  # Shared cache for downloaded models
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # Required for gated models
+      - HF_HOME=/root/.cache/huggingface  # Explicit cache location
+    command:
+      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
+      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
+      - --host=0.0.0.0
+      - --port=8000
+      - --device=cpu
+      - --trust-remote-code
+      - --download-dir=/root/.cache/huggingface  # Use shared cache
+    profiles: ["cpu"]
+    networks:
+      default:
+        aliases:
+          - vllm  # Backend references this service as "vllm"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s  # Model download and loading can take time
 
 volumes:
-  chroma_data:
+  postgres_data:
+  vllm_cache:

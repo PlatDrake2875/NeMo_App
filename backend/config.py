@@ -18,25 +18,46 @@ logger = logging.getLogger("nlp_backend")
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 
 # --- Environment Variables ---
-CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
-CHROMA_PORT = os.getenv("CHROMA_PORT", "8001")
+# PostgreSQL Configuration
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "nemo_rag")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "nemo_user")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "nemo_password")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "rag_documents")
-OLLAMA_BASE_URL = os.getenv(
-    "OLLAMA_BASE_URL", "http://localhost:11434"
-)  # Use localhost for Ollama running locally
-OLLAMA_MODEL_FOR_RAG = os.getenv(
-    "OLLAMA_MODEL_FOR_RAG", "gemma3:latest"
-)  # Default model for RAG if not specified in request
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "rag_documents")  # Used as table name
+
+# Build PostgreSQL connection strings
+# SQLAlchemy-style URI for PGVector and other SQLAlchemy-based libraries
+POSTGRES_CONNECTION_STRING = (
+    f"postgresql+psycopg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@"
+    f"{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+)
+# libpq-style connection string for direct psycopg connections
+POSTGRES_LIBPQ_CONNECTION = (
+    f"host={POSTGRES_HOST} port={POSTGRES_PORT} dbname={POSTGRES_DB} "
+    f"user={POSTGRES_USER} password={POSTGRES_PASSWORD}"
+)
+VLLM_BASE_URL = os.getenv(
+    "VLLM_BASE_URL", "http://localhost:8000"
+)  # vLLM OpenAI-compatible API endpoint
+VLLM_MODEL = os.getenv(
+    "VLLM_MODEL", "meta-llama/Llama-3.2-3B-Instruct"
+)  # Model served by vLLM
+
+# HuggingFace Hub Configuration
+HUGGING_FACE_HUB_TOKEN = os.getenv("HUGGING_FACE_HUB_TOKEN", None)
+
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "temp_uploads")
 NEMO_GUARDRAILS_SERVER_URL = os.getenv(
     "NEMO_GUARDRAILS_SERVER_URL", "http://nemo-guardrails:8001"
 )
 USE_GUARDRAILS = os.getenv("USE_GUARDRAILS", "false").lower() == "true"
 os.makedirs(UPLOAD_DIR, exist_ok=True)  # Ensure upload directory exists
-OLLAMA_MODEL_FOR_AUTOMATION = os.getenv(
-    "OLLAMA_MODEL_FOR_AUTOMATION", "gemma3:latest"
-)  # Or another default
+# Backward compatibility - automation uses the same vLLM model
+VLLM_MODEL_FOR_AUTOMATION = os.getenv(
+    "VLLM_MODEL_FOR_AUTOMATION", VLLM_MODEL
+)  # Defaults to main vLLM model
 
 # --- RAG Configuration ---
 # Global flag to enable/disable RAG functionality

@@ -1,84 +1,104 @@
-// HIA/frontend/src/components/ChatHistory.jsx
 import { useLayoutEffect, useRef } from "react";
-import styles from "./ChatHistory.module.css"; // Import CSS Module
-import { MarkdownMessage } from "./MarkdownMessage"; // Keep MarkdownMessage separate
+import { ScrollArea } from "./ui/scroll-area";
+import { MessageBubble } from "./MessageBubble";
+import { LoadingIndicator } from "./LoadingIndicator";
+import { cn } from "../lib/utils";
 
-export const ChatHistory = ({ chatHistory }) => {
-	const endOfMessagesRef = useRef(null);
-	const chatHistoryContainerRef = useRef(null); // Ref for the scroll container
+/**
+ * Determines if messages should be grouped (from same sender within time threshold)
+ * @param {Object} currentMsg - Current message
+ * @param {Object} prevMsg - Previous message
+ * @param {number} timeThreshold - Max milliseconds between messages to group (default: 2 minutes)
+ * @returns {boolean} Whether messages should be grouped
+ */
+function shouldGroupMessages(currentMsg, prevMsg, timeThreshold = 120000) {
+  if (!prevMsg || !currentMsg) return false;
+  if (prevMsg.sender !== currentMsg.sender) return false;
 
-	useLayoutEffect(() => {
-		const chatContainer = chatHistoryContainerRef.current;
-		if (!chatContainer || !endOfMessagesRef.current) return;
+  // Check timestamp proximity if available
+  if (currentMsg.timestamp && prevMsg.timestamp) {
+    const timeDiff = new Date(currentMsg.timestamp) - new Date(prevMsg.timestamp);
+    return timeDiff < timeThreshold;
+  }
 
-		// Determine if user is near the bottom before auto-scrolling
-		const scrollThreshold = 150; // Pixels from bottom tolerance
-		const isNearBottom =
-			chatContainer.scrollHeight -
-				chatContainer.scrollTop -
-				chatContainer.clientHeight <
-			scrollThreshold;
+  return true; // Group by default if no timestamps
+}
 
-		// Scroll to bottom if near bottom or initial load/few messages
-		if (isNearBottom) {
-			endOfMessagesRef.current.scrollIntoView({
-				behavior: "smooth",
-				block: "end",
-			});
-		}
-		// If not near bottom, only scroll if it's essentially the first message load
-		else if (
-			chatContainer.scrollHeight <=
-			chatContainer.clientHeight + scrollThreshold
-		) {
-			endOfMessagesRef.current.scrollIntoView({
-				behavior: "auto",
-				block: "end",
-			}); // Use auto for initial load
-		}
-	}, []); // Scroll when history changes
+export const ChatHistory = ({ chatHistory, isLoading = false }) => {
+  const endOfMessagesRef = useRef(null);
+  const scrollAreaRef = useRef(null);
 
-	return (
-		// Apply styles using the imported object
-		// Note: The parent (.chatArea) handles the scrolling, this is just the content list
-		<div className={styles.chatHistory} ref={chatHistoryContainerRef}>
-			{!Array.isArray(chatHistory) || chatHistory.length === 0
-				? // Optional: Add a message for empty history if needed
-					// <div className={styles.emptyHistory}>Start chatting...</div>
-					null // Or render nothing
-				: chatHistory.map((entry, index) => {
-						// Basic check for valid entry structure
-						if (
-							typeof entry !== "object" ||
-							entry === null ||
-							!entry.sender ||
-							!entry.text
-						) {
-							console.warn("Skipping invalid chat history entry:", entry);
-							return null; // Skip rendering invalid entries
-						}
+  useLayoutEffect(() => {
+    if (!endOfMessagesRef.current) return;
 
-						// Combine base and modifier classes
-						const messageContainerClasses = `${styles.messageContainer} ${entry.sender === "user" ? styles.user : styles.bot}`;
-						const chatMessageClasses = `${styles.chatMessage} ${entry.sender === "user" ? styles.user : styles.bot} ${entry.text.startsWith("⚠️ Error:") ? styles.error : ""}`; // Add error class conditionally
+    // Always scroll to bottom on new messages
+    endOfMessagesRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [chatHistory, isLoading]);
 
-						return (
-							<div
-								key={entry.id || `msg-${index}`}
-								className={messageContainerClasses}
-							>
-								<div className={chatMessageClasses}>
-									{/* Apply markdownContent class to the wrapper inside MarkdownMessage */}
-									<MarkdownMessage
-										text={entry.text}
-										markdownClassName={styles.markdownContent}
-									/>
-								</div>
-							</div>
-						);
-					})}
-			{/* Empty div at the end to help scrolling to the bottom */}
-			<div ref={endOfMessagesRef} />
-		</div>
-	);
+  return (
+    <ScrollArea className="flex-1 h-full scrollbar-thin" ref={scrollAreaRef}>
+      <div className="flex flex-col">
+        {!Array.isArray(chatHistory) || chatHistory.length === 0 ? (
+          <div className="flex items-center justify-center h-full min-h-[400px]">
+            <div className="text-center space-y-3 max-w-md px-6">
+              <div className="text-5xl mb-4">💬</div>
+              <h3 className="text-lg font-semibold text-foreground">
+                Start a conversation
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Send a message to begin chatting with the AI assistant
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {chatHistory.map((entry, index) => {
+              // Validate entry
+              if (
+                typeof entry !== "object" ||
+                entry === null ||
+                !entry.sender ||
+                !entry.text
+              ) {
+                console.warn("Skipping invalid chat history entry:", entry);
+                return null;
+              }
+
+              // Determine if this message should be grouped with the previous one
+              const prevEntry = index > 0 ? chatHistory[index - 1] : null;
+              const isGrouped = shouldGroupMessages(entry, prevEntry);
+
+              // Map sender to role
+              const role = entry.sender === "user" ? "user" : "assistant";
+
+              // Check for error messages
+              const isError = entry.text.startsWith("⚠️ Error:");
+
+              return (
+                <MessageBubble
+                  key={entry.id || `msg-${index}`}
+                  role={role}
+                  content={entry.text}
+                  timestamp={entry.timestamp}
+                  isGrouped={isGrouped}
+                  className={cn(
+                    isError && "bg-destructive/10 border-l-4 border-l-destructive"
+                  )}
+                />
+              );
+            })}
+          </>
+        )}
+
+        {/* Show loading indicator when assistant is responding */}
+        {isLoading && <LoadingIndicator />}
+
+        {/* Scroll anchor */}
+        <div ref={endOfMessagesRef} className="h-4" />
+      </div>
+    </ScrollArea>
+  );
 };

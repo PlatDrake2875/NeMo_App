@@ -1,6 +1,6 @@
 # NeMo Guardrails Testing Application
 
-A full-stack web application for testing **NVIDIA NeMo Guardrails** with **Ollama** as the LLM provider. This application provides a chat interface with configurable guardrails for different use cases including aviation assistance, banking, and mathematics.
+A full-stack web application for testing **NVIDIA NeMo Guardrails** with **vLLM** as the LLM provider. This application provides a chat interface with configurable guardrails for different use cases including aviation assistance, banking, and mathematics.
 
 ## Table of Contents
 
@@ -19,8 +19,8 @@ A full-stack web application for testing **NVIDIA NeMo Guardrails** with **Ollam
 This application consists of:
 - **Backend**: FastAPI server with NeMo Guardrails integration and RAG capabilities
 - **Frontend**: React-based chat interface with agent selection
-- **Vector Database**: ChromaDB for document storage and retrieval
-- **LLM Provider**: Ollama for local language model inference
+- **Vector Database**: PostgreSQL with pgvector for document storage and retrieval
+- **LLM Provider**: vLLM for high-performance language model inference
 
 ## Features
 
@@ -36,21 +36,15 @@ This application consists of:
 Make sure you have the following installed:
 
 ### Required Tools
-- **Python 3.9+** 
+- **Python 3.9+**
 - **[uv](https://docs.astral.sh/uv/)** - Modern Python package manager
 - **Node.js 18+** and **npm** - For frontend development
-- **Docker** and **Docker Compose** - For containerized services
-- **[Ollama](https://ollama.ai/)** - For local LLM hosting
+- **Docker** and **Docker Compose** - For containerized services (includes vLLM, PostgreSQL, and ChromaDB)
 
-### Ollama Setup
-1. Install Ollama from [https://ollama.ai/](https://ollama.ai/)
-2. Pull your preferred model:
-   ```bash
-   ollama pull llama2
-   # or
-   ollama pull mistral
-   # or any other model you prefer
-   ```
+### vLLM Setup
+vLLM runs in a Docker container and is automatically started with Docker Compose. The default model is `meta-llama/Llama-3.2-3B-Instruct`, which will be downloaded automatically on first run.
+
+To use a different model, modify the `MODEL_NAME` environment variable in `docker-compose.yml`.
 
 ## Quick Start
 
@@ -136,7 +130,7 @@ docker run -p 8001:8000 chromadb/chroma:latest
    - **Banking Assistant**: Configured for financial services
    - **Math Assistant**: Focused on mathematical problem-solving
 
-3. **Select a Model**: Choose from your available Ollama models
+3. **Select a Model**: Choose from your available vLLM models
 
 4. **Start Chatting**: The guardrails will automatically filter and guide responses based on your selected agent
 

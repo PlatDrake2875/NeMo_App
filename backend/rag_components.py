@@ -1,11 +1,11 @@
 # backend/rag_components.py
 from typing import Any, Optional
 
-import chromadb
 from fastapi import (
     HTTPException,  # Ensure Depends is imported if used directly here, though typically in routers
 )
-from langchain_chroma import Chroma as LangchainChroma
+from langchain_postgres import PGVector
+from langchain_postgres.vectorstores import PGVector as LangchainPGVector
 from langchain_core.documents import Document
 from langchain_core.messages import (  # Removed SystemMessage as it wasn't used
     AIMessage,
@@ -15,20 +15,20 @@ from langchain_core.prompts import (
     ChatPromptTemplate,  # Removed MessagesPlaceholder as it wasn't used directly
 )
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 from config import (
-    CHROMA_HOST,
-    CHROMA_PORT,
+    POSTGRES_CONNECTION_STRING,
+    POSTGRES_LIBPQ_CONNECTION,
     COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
-    OLLAMA_BASE_URL,
-    OLLAMA_MODEL_FOR_AUTOMATION,
-    OLLAMA_MODEL_FOR_RAG,
     RAG_CONTEXT_PREFIX_TEMPLATE_STR,
     RAG_ENABLED,
     RAG_PROMPT_TEMPLATE_STR,
     SIMPLE_PROMPT_TEMPLATE_STR,
+    VLLM_BASE_URL,
+    VLLM_MODEL,
+    VLLM_MODEL_FOR_AUTOMATION,
     logger,
 )
 
@@ -46,12 +46,12 @@ class RAGComponents:
 
     def __init__(self):
         if not self._initialized:
-            self.chroma_client: Optional[chromadb.HttpClient] = None
+            self.pg_connection: Optional[Any] = None
             self.embedding_function: Optional[HuggingFaceEmbeddings] = None
-            self.vectorstore: Optional[LangchainChroma] = None
+            self.vectorstore: Optional[LangchainPGVector] = None
             self.retriever: Optional[Any] = None
-            self.ollama_chat_for_rag: Optional[ChatOllama] = None
-            self.ollama_chat_for_automation: Optional[ChatOllama] = None
+            self.vllm_chat_for_rag: Optional[ChatOpenAI] = None
+            self.vllm_chat_for_automation: Optional[ChatOpenAI] = None
             self.rag_prompt_template_obj: Optional[ChatPromptTemplate] = None
             self.simple_prompt_template_obj: Optional[ChatPromptTemplate] = None
             self.rag_context_prefix_prompt_template_obj: Optional[
@@ -64,56 +64,46 @@ class RAGComponents:
         # 1. Embedding Function
         self.embedding_function = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
 
-        # 2. ChromaDB Client and Vectorstore
+        # 2. PostgreSQL PGVector Vectorstore
         if self.embedding_function:
             try:
-                temp_chroma_client = chromadb.HttpClient(
-                    host=CHROMA_HOST, port=int(CHROMA_PORT)
-                )
-                temp_chroma_client.heartbeat()
-                self.chroma_client = temp_chroma_client
-
-                # Try to get existing collection first, create if it doesn't exist
-                try:
-                    self.chroma_client.get_collection(name=COLLECTION_NAME)
-                    logger.info(
-                        f"Using existing ChromaDB collection: {COLLECTION_NAME}"
-                    )
-                except ValueError:
-                    self.chroma_client.create_collection(
-                        name=COLLECTION_NAME,
-                        metadata={"hnsw:space": "cosine"},  # Explicit metadata
-                    )
-                    logger.info(f"Created new ChromaDB collection: {COLLECTION_NAME}")
-
-                self.vectorstore = LangchainChroma(
-                    client=self.chroma_client,
+                # Initialize PGVector with connection string
+                self.vectorstore = PGVector(
+                    connection=POSTGRES_CONNECTION_STRING,
+                    embeddings=self.embedding_function,
                     collection_name=COLLECTION_NAME,
-                    embedding_function=self.embedding_function,
+                    use_jsonb=True,
                 )
+
+                # The PGVector will automatically create the extension and tables if needed
+                logger.info(f"Initialized PGVector with collection: {COLLECTION_NAME}")
+
                 self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": 3})
+                self.pg_connection = POSTGRES_LIBPQ_CONNECTION  # Store libpq format for health checks
 
             except Exception as e:
                 logger.critical(
-                    "Failed to initialize ChromaDB client/vectorstore/retriever: %s",
+                    "Failed to initialize PostgreSQL PGVector/vectorstore/retriever: %s",
                     e,
                     exc_info=True,
                 )
-                self.chroma_client = self.vectorstore = self.retriever = None
+                self.pg_connection = self.vectorstore = self.retriever = None
         else:
-            self.chroma_client = self.vectorstore = self.retriever = None
+            self.pg_connection = self.vectorstore = self.retriever = None
 
-        # 3. ChatOllama LLM (for RAG)
-        self.ollama_chat_for_rag = ChatOllama(
-            model=OLLAMA_MODEL_FOR_RAG,
-            base_url=OLLAMA_BASE_URL,
-            temperature=0.1,  # Example temperature
+        # 3. ChatOpenAI LLM (for RAG) - pointing to vLLM
+        self.vllm_chat_for_rag = ChatOpenAI(
+            model=VLLM_MODEL,
+            base_url=f"{VLLM_BASE_URL}/v1",
+            api_key="EMPTY",  # vLLM doesn't require authentication
+            temperature=0.1,
         )
 
-        # 4. ChatOllama LLM (for Automation Tasks)
-        self.ollama_chat_for_automation = ChatOllama(
-            model=OLLAMA_MODEL_FOR_AUTOMATION,
-            base_url=OLLAMA_BASE_URL,
+        # 4. ChatOpenAI LLM (for Automation Tasks) - pointing to vLLM
+        self.vllm_chat_for_automation = ChatOpenAI(
+            model=VLLM_MODEL_FOR_AUTOMATION,
+            base_url=f"{VLLM_BASE_URL}/v1",
+            api_key="EMPTY",
             temperature=0.2,
         )
 
@@ -170,14 +160,14 @@ def setup_rag_components():
 
 
 # --- Dependency Functions (getters for initialized components) ---
-def get_chroma_client() -> chromadb.HttpClient:
+def get_pg_connection() -> str:
     rag_components = get_rag_components()
-    if rag_components.chroma_client is None:
-        raise HTTPException(status_code=503, detail="ChromaDB client is not available.")
-    return rag_components.chroma_client
+    if rag_components.pg_connection is None:
+        raise HTTPException(status_code=503, detail="PostgreSQL connection is not available.")
+    return rag_components.pg_connection
 
 
-def get_vectorstore() -> LangchainChroma:
+def get_vectorstore() -> LangchainPGVector:
     rag_components = get_rag_components()
     if rag_components.vectorstore is None:
         raise HTTPException(status_code=503, detail="Vector store is not available.")
@@ -200,35 +190,44 @@ def get_retriever() -> Any:
     return rag_components.retriever
 
 
-def get_ollama_chat_for_rag() -> ChatOllama:
+def get_vllm_chat_for_rag() -> ChatOpenAI:
     rag_components = get_rag_components()
-    if rag_components.ollama_chat_for_rag is None:
+    if rag_components.vllm_chat_for_rag is None:
         raise HTTPException(status_code=503, detail="RAG chat model is not available.")
-    return rag_components.ollama_chat_for_rag
+    return rag_components.vllm_chat_for_rag
 
 
-# --- Function that was missing ---
-def get_llm_for_automation() -> ChatOllama:
+# Backward compatibility alias - DEPRECATED: Use get_vllm_chat_for_rag instead
+# This will be removed in a future version
+get_ollama_chat_for_rag = get_vllm_chat_for_rag
+
+
+def get_llm_for_automation() -> ChatOpenAI:
     rag_components = get_rag_components()
-    if rag_components.ollama_chat_for_automation is None:
+    if rag_components.vllm_chat_for_automation is None:
         raise HTTPException(status_code=503, detail="Automation LLM is not available.")
-    return rag_components.ollama_chat_for_automation
+    return rag_components.vllm_chat_for_automation
 
 
 # --- Optional Dependencies (for health check) ---
-def get_optional_chroma_client() -> Optional[chromadb.HttpClient]:
+def get_optional_pg_connection() -> Optional[str]:
     rag_components = get_rag_components()
-    return rag_components.chroma_client
+    return rag_components.pg_connection
 
 
-def get_optional_ollama_chat_for_rag() -> Optional[ChatOllama]:
+def get_optional_vllm_chat_for_rag() -> Optional[ChatOpenAI]:
     rag_components = get_rag_components()
-    return rag_components.ollama_chat_for_rag
+    return rag_components.vllm_chat_for_rag
 
 
-def get_optional_llm_for_automation() -> Optional[ChatOllama]:
+# Backward compatibility alias - DEPRECATED: Use get_optional_vllm_chat_for_rag instead
+# This will be removed in a future version
+get_optional_ollama_chat_for_rag = get_optional_vllm_chat_for_rag
+
+
+def get_optional_llm_for_automation() -> Optional[ChatOpenAI]:
     rag_components = get_rag_components()
-    return rag_components.ollama_chat_for_automation
+    return rag_components.vllm_chat_for_automation
 
 
 # --- Function to Generate RAG Context Prefix ---

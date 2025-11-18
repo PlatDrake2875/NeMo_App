@@ -160,6 +160,30 @@
 	border-top: 1px solid var(--border-color, #e5e5e5);
 	display: flex;
 	justify-content: center;
+	gap: 12px;
+}
+
+.skipButton {
+	padding: 12px 24px;
+	border: 2px solid var(--primary-color, #007acc);
+	border-radius: 8px;
+	background: var(--primary-color, #007acc);
+	color: #ffffff;
+	font-size: 14px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.skipButton:hover {
+	background: var(--primary-hover-color, #005a9e);
+	border-color: var(--primary-hover-color, #005a9e);
+	transform: translateY(-1px);
+	box-shadow: 0 4px 12px rgba(0, 122, 204, 0.25);
+}
+
+.skipButton:active {
+	transform: translateY(0);
 }
 
 .cancelButton {
@@ -225,10 +249,16 @@
 	--border-color: #333333;
 	--card-background: #252525;
 	--icon-background: #2a2a2a;
+	--primary-color: #1e90ff;
+	--primary-hover-color: #1873cc;
 }
 
 [data-theme="dark"] .agentCard:hover {
 	box-shadow: 0 4px 12px rgba(0, 122, 204, 0.25);
+}
+
+[data-theme="dark"] .skipButton:hover {
+	box-shadow: 0 4px 12px rgba(30, 144, 255, 0.35);
 }
 
 /* Responsive design */
@@ -276,5 +306,12 @@
 
 	.footer {
 		padding: 16px 24px 24px;
+		flex-direction: column-reverse;
+		gap: 8px;
+	}
+
+	.skipButton,
+	.cancelButton {
+		width: 100%;
 	}
 }

@@ -4,13 +4,17 @@ Separated from the web layer for better testability and maintainability.
 """
 
 import os
+from typing import Optional
 
 from fastapi import HTTPException, UploadFile
-from langchain_chroma import Chroma as LangchainChroma
+from langchain_postgres.vectorstores import PGVector as LangchainPGVector
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from multi_embedder_manager import get_multi_embedder_manager
 from schemas import UploadResponse
+from services.chunking import ChunkingService
+from services.dataset_registry import DatasetRegistryService
 
 
 class UploadService:
@@ -19,11 +23,17 @@ class UploadService:
     def __init__(self):
         self.temp_dir = "/app/temp_uploads"
         self.supported_content_types = {"application/pdf"}
-        self.chunk_size = 1000
-        self.chunk_overlap = 200
+        self.chunking_service = ChunkingService()
 
     async def process_document_upload(
-        self, file: UploadFile, vectorstore: LangchainChroma
+        self,
+        file: UploadFile,
+        default_vectorstore: LangchainPGVector,
+        dataset_name: Optional[str] = None,
+        chunking_method: str = "recursive",
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+        **chunking_kwargs
     ) -> UploadResponse:
         if not file.filename:
             raise HTTPException(status_code=400, detail="No filename provided")
@@ -31,17 +41,43 @@ class UploadService:
         original_filename = file.filename
         temp_file_path = self._prepare_temp_file_path(original_filename)
 
+        # Determine which vectorstore to use
+        if dataset_name:
+            # Get dataset info and create appropriate vectorstore
+            dataset_registry = DatasetRegistryService()
+            dataset_info = dataset_registry.get_dataset(dataset_name)
+
+            # Get vectorstore for this dataset
+            multi_embedder_manager = get_multi_embedder_manager()
+            vectorstore = multi_embedder_manager.get_vectorstore(
+                collection_name=dataset_info.collection_name,
+                embedder_config=dataset_info.embedder_config
+            )
+        else:
+            # Use default vectorstore
+            vectorstore = default_vectorstore
+
         file_content = await self._read_and_validate_file(file)
         self._save_temp_file(file_content, temp_file_path)
         docs = self._load_document(file, temp_file_path, original_filename)
-        chunks = self._split_document_into_chunks(docs)
+        chunks = self._split_document_into_chunks(
+            docs,
+            chunking_method=chunking_method,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            **chunking_kwargs
+        )
         self._add_to_vector_store(chunks, vectorstore)
+
+        # Update dataset counts if using a specific dataset
+        if dataset_name:
+            dataset_registry.update_dataset_counts(dataset_name)
 
         self._cleanup_temp_file(temp_file_path)
         await file.close()
 
         return UploadResponse(
-            message="Document processed and added to vector store successfully.",
+            message=f"Document processed with {chunking_method} chunking and added to {'dataset ' + dataset_name if dataset_name else 'vector store'} successfully.",
             filename=original_filename,
             chunks_added=len(chunks),
         )
@@ -89,12 +125,22 @@ class UploadService:
 
         return docs
 
-    def _split_document_into_chunks(self, docs: list) -> list:
-        """Split the document into chunks for vectorization."""
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap
+    def _split_document_into_chunks(
+        self,
+        docs: list,
+        chunking_method: str = "recursive",
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+        **chunking_kwargs
+    ) -> list:
+        """Split the document into chunks for vectorization using specified method."""
+        chunks = self.chunking_service.chunk_documents(
+            docs,
+            method=chunking_method,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            **chunking_kwargs
         )
-        chunks = text_splitter.split_documents(docs)
 
         if not chunks:
             raise HTTPException(
@@ -104,7 +150,7 @@ class UploadService:
 
         return chunks
 
-    def _add_to_vector_store(self, chunks: list, vectorstore: LangchainChroma) -> None:
+    def _add_to_vector_store(self, chunks: list, vectorstore: LangchainPGVector) -> None:
         """Add the document chunks to the vector store."""
         vectorstore.add_documents(chunks)
 
@@ -181,15 +227,15 @@ async def main():
         upload_service.temp_dir = test_temp_dir
 
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vectorstore = LangchainChroma(embedding_function=embeddings)
+        # Note: For testing, you'd need a real PostgreSQL connection string
+        # vectorstore = LangchainPGVector(
+        #     connection="postgresql+psycopg://user:pass@localhost:5432/db",
+        #     embeddings=embeddings,
+        #     collection_name="test_collection"
+        # )
 
-        await upload_service.process_document_upload(mock_file, vectorstore)
-
-        collection = vectorstore._collection
-        count = collection.count()
-
-        if count > 0:
-            vectorstore.similarity_search("test document", k=2)
+        # Skipping actual upload test as it requires PostgreSQL connection
+        # await upload_service.process_document_upload(mock_file, vectorstore)
 
     except Exception:
         pass

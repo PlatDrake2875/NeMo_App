@@ -1,8 +1,8 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies needed for building Python packages
+# Install system dependencies needed for building Python packages and health checks
 RUN apt-get update && apt-get install -y \
     build-essential \
     g++ \
@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libc6-dev \
     make \
     pkg-config \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv

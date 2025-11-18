@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import HTTPException
 from nemoguardrails import LLMRails, RailsConfig
 
-from config import OLLAMA_BASE_URL
+from config import VLLM_BASE_URL
 
 logger = logging.getLogger("nemo_service")
 
@@ -25,7 +25,7 @@ class NemoService:
         self.config_path = self._get_default_config_path(agent_name)
         self.rails: Optional[LLMRails] = None
         self._is_initialized = False
-        self.base_url = OLLAMA_BASE_URL
+        self.base_url = VLLM_BASE_URL
 
     def _get_default_config_path(self, agent_name: str) -> str:
         """Get the default config path relative to the backend directory."""
@@ -54,6 +54,12 @@ class NemoService:
 
         yaml_content = config_file.read_text(encoding="utf-8")
         colang_content = colang_file.read_text(encoding="utf-8")
+
+        # Replace hardcoded localhost URL with environment variable
+        # This allows the config to work in both Docker and local development
+        yaml_content = yaml_content.replace(
+            "http://localhost:8000/v1", f"{self.base_url}/v1"
+        )
 
         # Create rails configuration from YAML and Colang content
         rails_config = RailsConfig.from_content(

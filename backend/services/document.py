@@ -6,10 +6,13 @@ Separated from the web layer for better testability and maintainability.
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from langchain_chroma import Chroma as LangchainChroma
+from langchain_postgres.vectorstores import PGVector as LangchainPGVector
+import psycopg
 
-from config import COLLECTION_NAME
+from config import COLLECTION_NAME, POSTGRES_LIBPQ_CONNECTION
+from multi_embedder_manager import get_multi_embedder_manager
 from schemas import DocumentChunk, DocumentListResponse
+from services.dataset_registry import DatasetRegistryService
 
 
 class DocumentService:
@@ -19,25 +22,64 @@ class DocumentService:
         self.collection_name = COLLECTION_NAME
 
     async def get_all_documents(
-        self, vectorstore: LangchainChroma
+        self,
+        default_vectorstore: LangchainPGVector,
+        dataset_name: Optional[str] = None
     ) -> DocumentListResponse:
         try:
-            # Get the underlying ChromaDB client
-            client = self._get_chroma_client(vectorstore)
+            # Determine which collection to query
+            if dataset_name:
+                # Get dataset info
+                dataset_registry = DatasetRegistryService()
+                dataset_info = dataset_registry.get_dataset(dataset_name)
+                collection_name = dataset_info.collection_name
+            else:
+                # Use default collection
+                collection_name = self.collection_name
 
-            # Get the collection
-            collection = self._get_collection(client)
+            # Query PostgreSQL directly to get all documents from the collection
+            with psycopg.connect(POSTGRES_LIBPQ_CONNECTION) as conn:
+                with conn.cursor() as cur:
+                    # Query the langchain_pg_embedding table (default table used by PGVector)
+                    # The table structure includes: id, collection_id, embedding, document, cmetadata
+                    cur.execute(
+                        """
+                        SELECT e.id, e.document, e.cmetadata
+                        FROM langchain_pg_embedding e
+                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                        WHERE c.name = %s
+                        ORDER BY e.id
+                        """,
+                        (collection_name,)
+                    )
 
-            # Retrieve all documents
-            results = self._retrieve_documents(collection)
+                    results = cur.fetchall()
 
-            if not results or not results.get("ids"):
-                return DocumentListResponse(count=0, documents=[])
+                    if not results:
+                        return DocumentListResponse(count=0, documents=[])
 
-            # Process and format results
-            doc_chunks = self._process_results(results)
+                    # Process results into DocumentChunk objects
+                    doc_chunks = []
+                    for row in results:
+                        doc_id, document, metadata = row
 
-            return DocumentListResponse(count=len(doc_chunks), documents=doc_chunks)
+                        # Ensure metadata is a dict
+                        if metadata is None:
+                            metadata = {}
+
+                        # Ensure document is a string
+                        if document is None:
+                            document = ""
+
+                        doc_chunks.append(
+                            DocumentChunk(
+                                id=str(doc_id),
+                                page_content=document,
+                                metadata=metadata,
+                            )
+                        )
+
+                    return DocumentListResponse(count=len(doc_chunks), documents=doc_chunks)
 
         except HTTPException:
             raise
@@ -46,84 +88,3 @@ class DocumentService:
                 status_code=500,
                 detail=f"An unexpected error occurred while retrieving documents: {str(e)}",
             ) from e
-
-    def _get_chroma_client(self, vectorstore: LangchainChroma) -> Any:
-        """Get the underlying ChromaDB client from the vectorstore."""
-        client: Optional[Any] = None
-        possible_client_attrs = ["client", "_client"]
-
-        for attr_name in possible_client_attrs:
-            if hasattr(vectorstore, attr_name):
-                potential_client = getattr(vectorstore, attr_name)
-                if potential_client is not None and hasattr(
-                    potential_client, "get_collection"
-                ):
-                    client = potential_client
-                    break
-
-        if client is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Internal configuration error: Could not obtain ChromaDB client from vectorstore.",
-            )
-
-        return client
-
-    def _get_collection(self, client: Any) -> Any:
-        """Get the collection from the ChromaDB client."""
-        collection_name = getattr(client, "_collection_name", self.collection_name)
-
-        try:
-            return client.get_collection(name=collection_name)
-        except Exception as e_coll:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Could not access vector store collection '{collection_name}': {str(e_coll)}",
-            ) from e_coll
-
-    def _retrieve_documents(self, collection: Any) -> dict:
-        """Retrieve documents from the collection."""
-        try:
-            return collection.get(include=["metadatas", "documents"])
-        except Exception as e_get:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Could not retrieve documents from vector store: {str(e_get)}",
-            ) from e_get
-
-    def _process_results(self, results: dict) -> list[DocumentChunk]:
-        """Process the raw results into DocumentChunk objects."""
-        ids = results.get("ids", [])
-        contents = results.get("documents", [])
-        metadatas = results.get("metadatas", [])
-
-        if (
-            ids is None
-            or contents is None
-            or metadatas is None
-            or not (len(ids) == len(contents) == len(metadatas))
-        ):
-            raise HTTPException(
-                status_code=500, detail="Inconsistent data received from vector store."
-            )
-
-        doc_chunks = []
-        for i in range(len(ids)):
-            doc_id = ids[i]
-            content = contents[i] if i < len(contents) else ""
-            metadata = metadatas[i] if i < len(metadatas) else {}
-
-            if metadata is None:
-                metadata = {}
-            if content is None:
-                content = ""
-
-            doc_chunks.append(
-                DocumentChunk(
-                    id=doc_id,
-                    page_content=content,
-                    metadata=metadata,
-                )
-            )
-
-        return doc_chunks

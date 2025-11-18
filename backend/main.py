@@ -5,11 +5,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from database_models import init_database
 from rag_components import setup_rag_components
 from routers import (
     agents_router,
     automate_router,
     chat_router,
+    chunking_router,
+    dataset_router,
     document_router,
     health_router,
     model_router,
@@ -21,6 +24,8 @@ from routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup event
+    # Initialize database tables
+    init_database()
     # Call setup to initialize global components in rag_components.py
     setup_rag_components()
     yield
@@ -59,6 +64,8 @@ app.include_router(health_router.router)
 app.include_router(agents_router.router)
 app.include_router(chat_router.router, prefix="/api", tags=["Chat Endpoints"])
 app.include_router(model_router.router, prefix="/api", tags=["Model Endpoints"])
+app.include_router(dataset_router.router, prefix="/api", tags=["Dataset Endpoints"])
+app.include_router(chunking_router.router, prefix="/api", tags=["Chunking Endpoints"])
 app.include_router(document_router.router, prefix="/api", tags=["Document Endpoints"])
 app.include_router(upload_router.router, prefix="/api", tags=["Upload Endpoints"])
 app.include_router(automate_router.router, prefix="/api", tags=["Automation Endpoints"])

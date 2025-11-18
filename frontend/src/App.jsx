@@ -1,6 +1,5 @@
 // HIA/frontend/src/App.jsx
 import { useCallback, useEffect, useMemo, useState } from "react";
-import styles from "./App.module.css";
 import "./index.css";
 
 import { AgentSelector } from "./components/AgentSelector";
@@ -9,6 +8,7 @@ import { DocumentViewer } from "./components/DocumentViewer"; // Import the new 
 
 // Import components
 import { Sidebar } from "./components/Sidebar";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { useChatSessions } from "./hooks/useChatSessions";
 // Import custom hooks
 import { useTheme } from "./hooks/useTheme";
@@ -112,14 +112,8 @@ function App() {
 				return;
 			}
 
-			// Get the selected agent for the current session
-			const selectedAgent = sessionAgents[activeSessionId];
-			if (!selectedAgent) {
-				console.error(
-					"No agent selected for this session. Cannot submit chat.",
-				);
-				return;
-			}
+			// Get the selected agent for the current session (null if skipped)
+			const selectedAgent = sessionAgents[activeSessionId] || null;
 
 			// Pass the query, model, and agent to the chat API
 			await originalHandleChatSubmit(query, selectedModel, selectedAgent);
@@ -157,6 +151,29 @@ function App() {
 		// If this was a new chat without any messages, we could optionally delete it
 		// For now, just hide the selector
 	}, []);
+
+	// Auto-assign null agent to existing sessions with history
+	useEffect(() => {
+		if (!isInitialized || !sessions) return;
+
+		setSessionAgents((prev) => {
+			const updated = { ...prev };
+			let hasChanges = false;
+
+			Object.keys(sessions).forEach((sessionId) => {
+				// If session doesn't have agent info and has chat history, set to null (skip agent)
+				if (
+					prev[sessionId] === undefined &&
+					sessions[sessionId]?.history?.length > 0
+				) {
+					updated[sessionId] = null; // null means "continue without agent"
+					hasChanges = true;
+				}
+			});
+
+			return hasChanges ? updated : prev;
+		});
+	}, [isInitialized, sessions]);
 
 	const formatSessionIdFallback = useCallback((sessionId) => {
 		if (!sessionId) return "Chat";
@@ -250,70 +267,79 @@ function App() {
 	}, []);
 
 	// --- View Switching Handlers ---
-	const handleViewDocuments = () => {
+	const handleViewDocuments = useCallback(() => {
+		console.log("Switching to documents view");
+		setShowAgentSelector(false); // Close agent selector to prevent overlay blocking
 		setCurrentView("documents");
-	};
+	}, []);
 
-	const handleBackToChat = () => {
+	const handleBackToChat = useCallback(() => {
+		console.log("Back to Chat button clicked - switching to chat view");
+		setShowAgentSelector(false); // Close agent selector for consistency
 		setCurrentView("chat");
-	};
+	}, []);
 
 	return (
-		<div className={styles.App}>
-			<Sidebar
-				sessions={sessions}
-				activeSessionId={activeSessionId}
-				selectedModel={selectedModel}
-				onNewChat={handleNewChatWithAgent}
-				onSelectSession={handleSelectSession}
-				onDeleteSession={handleDeleteSession}
-				onRenameSession={handleRenameSession}
-				onAutomateConversation={handleAutomateConversation}
-				isSubmitting={isChatSubmitting}
-				automationError={automationError}
-				isInitialized={isInitialized}
-				// PDF Upload props
-				onUploadPdf={handlePdfUpload}
-				isUploadingPdf={isUploadingPdf}
-				pdfUploadStatus={pdfUploadStatus}
-				// View switching prop
-				onViewDocuments={handleViewDocuments}
-			/>
-			{/* Conditionally render the main content area */}
-			{currentView === "chat" ? (
-				<ChatInterface
-					key={`${activeSessionId || "no-session"}-${activeChatHistory.length}`}
+		<TooltipProvider>
+			<div className="flex h-screen overflow-hidden bg-background">
+				<Sidebar
+					sessions={sessions}
 					activeSessionId={activeSessionId}
-					activeSessionName={activeSessionName}
-					chatHistory={activeChatHistory}
-					onSubmit={handleChatSubmitWithModel}
-					onClearHistory={clearActiveChatHistory}
-					onDownloadHistory={downloadActiveChatHistory}
-					isSubmitting={isChatSubmitting}
-					isDarkMode={isDarkMode}
-					toggleTheme={toggleTheme}
-					availableModels={availableModels}
 					selectedModel={selectedModel}
-					onModelChange={handleModelChange}
-					modelsLoading={modelsLoading}
-					modelsError={modelsError}
+					onNewChat={handleNewChatWithAgent}
+					onSelectSession={handleSelectSession}
+					onDeleteSession={handleDeleteSession}
+					onRenameSession={handleRenameSession}
+					onAutomateConversation={handleAutomateConversation}
+					isSubmitting={isChatSubmitting}
+					automationError={automationError}
 					isInitialized={isInitialized}
-					// Pass agent selector info
-					showAgentSelector={showAgentSelector}
-					sessionAgents={sessionAgents}
+					// PDF Upload props
+					onUploadPdf={handlePdfUpload}
+					isUploadingPdf={isUploadingPdf}
+					pdfUploadStatus={pdfUploadStatus}
+					// View switching prop
+					onViewDocuments={handleViewDocuments}
 				/>
-			) : (
-				<DocumentViewer onBackToChat={handleBackToChat} />
-			)}
+				{/* Main content area */}
+				<div className="flex-1 flex flex-col overflow-hidden">
+					{currentView === "chat" ? (
+						<ChatInterface
+							key={`${activeSessionId || "no-session"}-${activeChatHistory.length}`}
+							activeSessionId={activeSessionId}
+							activeSessionName={activeSessionName}
+							chatHistory={activeChatHistory}
+							onSubmit={handleChatSubmitWithModel}
+							onClearHistory={clearActiveChatHistory}
+							onDownloadHistory={downloadActiveChatHistory}
+							isSubmitting={isChatSubmitting}
+							isDarkMode={isDarkMode}
+							toggleTheme={toggleTheme}
+							availableModels={availableModels}
+							selectedModel={selectedModel}
+							onModelChange={handleModelChange}
+							modelsLoading={modelsLoading}
+							modelsError={modelsError}
+							isInitialized={isInitialized}
+							// Pass agent selector info
+							showAgentSelector={showAgentSelector}
+							sessionAgents={sessionAgents}
+							onRefreshModels={fetchModels}
+						/>
+					) : (
+						<DocumentViewer onBackToChat={handleBackToChat} />
+					)}
+				</div>
 
-			{/* Render AgentSelector as overlay when needed */}
-			{showAgentSelector && (
-				<AgentSelector
-					onAgentSelect={handleAgentSelect}
-					onCancel={handleAgentCancel}
-				/>
-			)}
-		</div>
+				{/* Render AgentSelector as overlay when needed */}
+				{showAgentSelector && (
+					<AgentSelector
+						onAgentSelect={handleAgentSelect}
+						onCancel={handleAgentCancel}
+					/>
+				)}
+			</div>
+		</TooltipProvider>
 	);
 }
 

@@ -12,10 +12,10 @@ import httpx
 
 from config import (
     NEMO_GUARDRAILS_SERVER_URL,
-    OLLAMA_BASE_URL,
-    OLLAMA_MODEL_FOR_RAG,
     RAG_ENABLED,
     USE_GUARDRAILS,
+    VLLM_BASE_URL,
+    VLLM_MODEL,
 )
 from rag_components import get_rag_context_prefix
 from services.nemo import get_local_nemo_instance
@@ -25,8 +25,8 @@ class ChatService:
     """Service class handling all chat-related business logic."""
 
     def __init__(self):
-        self.ollama_base_url = OLLAMA_BASE_URL
-        self.default_model = OLLAMA_MODEL_FOR_RAG
+        self.vllm_base_url = VLLM_BASE_URL
+        self.default_model = VLLM_MODEL
         self.rag_enabled = RAG_ENABLED
         self.use_guardrails = USE_GUARDRAILS
         self.nemo_server_url = NEMO_GUARDRAILS_SERVER_URL
@@ -61,7 +61,7 @@ class ChatService:
             ):
                 yield chunk
         else:
-            async for chunk in self._direct_ollama_stream(
+            async for chunk in self._direct_vllm_stream(
                 model_name=effective_model_name,
                 messages_payload=messages_for_llm,
             ):
@@ -122,10 +122,10 @@ class ChatService:
 
         return messages_for_llm
 
-    async def _direct_ollama_stream(
+    async def _direct_vllm_stream(
         self, model_name: str, messages_payload: list[dict[str, str]]
     ) -> AsyncGenerator[str, None]:
-        """Stream responses directly from Ollama."""
+        """Stream responses directly from vLLM (OpenAI-compatible API)."""
         request_payload = {
             "model": model_name,
             "messages": messages_payload,
@@ -134,19 +134,40 @@ class ChatService:
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST",
-                f"{self.ollama_base_url}/api/chat",
+                f"{self.vllm_base_url}/v1/chat/completions",
                 json=request_payload,
             ) as response:
-                async for line in response.aiter_lines():
-                    if line:
-                        chunk_data = json.loads(line)
-                        token = chunk_data.get("message", {}).get("content", "")
-                        is_done = chunk_data.get("done", False)
+                if response.status_code != 200:
+                    error_msg = f"vLLM API error {response.status_code}"
+                    yield f"data: {json.dumps({'error': error_msg})}\n\n"
+                    return
 
-                        if token:
-                            yield f"data: {json.dumps({'token': token})}\n\n"
-                        if is_done:
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        line_content = line[len("data: "):].strip()
+                        if line_content == "[DONE]":
                             break
+                        if not line_content:
+                            continue
+
+                        try:
+                            chunk_data = json.loads(line_content)
+                            # Extract token from OpenAI-style response
+                            token = (
+                                chunk_data.get("choices", [{}])[0]
+                                .get("delta", {})
+                                .get("content", "")
+                            )
+                            finish_reason = chunk_data.get("choices", [{}])[0].get(
+                                "finish_reason"
+                            )
+
+                            if token:
+                                yield f"data: {json.dumps({'token': token})}\n\n"
+                            if finish_reason:
+                                break
+                        except json.JSONDecodeError:
+                            continue
 
         yield f"data: {json.dumps({'status': 'done'})}\n\n"
 
@@ -199,7 +220,7 @@ class ChatService:
             error_msg = "No valid response from local NeMo Guardrails"
             yield f'data: {{"error": "{error_msg}"}}\n\n'
 
-    async def _guardrails_ollama_stream(
+    async def _guardrails_stream(
         self,
         model_name_for_guardrails: str,
         messages_payload: list[dict[str, str]],
