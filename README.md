@@ -121,6 +121,15 @@ npm run dev               # Start development server
 docker run -p 8001:8000 chromadb/chroma:latest
 ```
 
+### Cleanup commands
+```bash
+docker compose --profile fullstack --profile gpu down
+```
+
+```bash
+  docker network prune -f
+```
+
 ## Usage
 
 1. **Access the application**: Open http://localhost:5173 in your browser
