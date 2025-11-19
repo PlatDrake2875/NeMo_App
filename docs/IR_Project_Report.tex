@@ -1,0 +1,528 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{multirow}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{natbib}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=green,
+}
+
+% Title information
+\title{
+    \textbf{A Study of Embeddings, LLMs, and RAG Methods}\\[0.5cm]
+    \large Information Retrieval Course Assignment\\
+    Benchmarking ColBERT and FAISS Retrieval Systems
+}
+
+\author{
+    Patrascu Adrian\textsuperscript{1} \and
+    Modiga Miriam\textsuperscript{1} \and
+    Toderian Vitalii\textsuperscript{1}\\[0.5cm]
+    \textsuperscript{1}Faculty of Automatic Control and Computer Science\\
+    Politehnica University of Bucharest
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This project presents a comprehensive benchmark comparison of two prominent Retrieval-Augmented Generation (RAG) methods: ColBERT and FAISS. We evaluate these systems across multiple dimensions including sparse versus dense embeddings, various open-source Large Language Models (LLMs), and conversational test scenarios implemented via LangGraph. Our experimental framework encompasses 3-5 sparse and dense embedders, 3-5 open-source LLMs, and 2-3 Information Retrieval benchmarks. The goal is to provide empirical insights into the trade-offs between late interaction approaches (ColBERT) and approximate nearest neighbor search methods (FAISS) in real-world RAG applications.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+Retrieval-Augmented Generation (RAG) has emerged as a powerful paradigm for enhancing Large Language Model (LLM) responses with relevant external knowledge. The effectiveness of RAG systems critically depends on the underlying retrieval mechanism, which must balance efficiency and accuracy when searching through large document collections.
+
+This project investigates two influential approaches to neural information retrieval:
+
+\begin{enumerate}
+    \item \textbf{ColBERT} \citep{khattab2020colbert}: A late interaction model that performs efficient passage retrieval using contextualized embeddings from BERT, enabling scalable yet expressive matching between queries and documents.
+
+    \item \textbf{FAISS} \citep{johnson2017billion}: Facebook AI Similarity Search, a library for efficient similarity search and clustering of dense vectors, widely used as the backbone for dense retrieval systems.
+\end{enumerate}
+
+\subsection{Project Objectives}
+
+The primary objectives of this project are:
+
+\begin{itemize}
+    \item Benchmark 2-3 Information Retrieval evaluation sets
+    \item Compare 3-5 sparse versus dense embedding approaches
+    \item Evaluate performance with 3-5 open-source LLMs
+    \item Analyze ColBERT and FAISS as RAG retrieval backends
+    \item Implement conversational tests using LangGraph
+\end{itemize}
+
+%==============================================================================
+\section{Background and Related Work}
+%==============================================================================
+
+\subsection{ColBERT: Contextualized Late Interaction over BERT}
+
+ColBERT \citep{khattab2020colbert} introduces a novel "late interaction" architecture that independently encodes queries and documents using BERT, then employs a cheap yet powerful interaction step for relevance scoring.
+
+\subsubsection{Architecture}
+
+The ColBERT architecture consists of:
+
+\begin{enumerate}
+    \item \textbf{Query Encoder}: Processes the query $q$ through BERT to produce a set of contextualized embeddings $E_q = \{e_{q_1}, e_{q_2}, ..., e_{q_n}\}$
+
+    \item \textbf{Document Encoder}: Similarly encodes documents $d$ into embeddings $E_d = \{e_{d_1}, e_{d_2}, ..., e_{d_m}\}$
+
+    \item \textbf{Late Interaction}: Computes relevance using MaxSim:
+    \begin{equation}
+        S_{q,d} = \sum_{i \in |E_q|} \max_{j \in |E_d|} E_{q_i} \cdot E_{d_j}^T
+    \end{equation}
+\end{enumerate}
+
+\subsubsection{Key Advantages}
+
+\begin{itemize}
+    \item \textbf{Efficiency}: Documents can be pre-encoded offline
+    \item \textbf{Expressiveness}: Token-level matching captures fine-grained semantics
+    \item \textbf{Scalability}: Compatible with approximate nearest neighbor search
+\end{itemize}
+
+\subsubsection{Implementations}
+
+\begin{itemize}
+    \item Official: \url{https://github.com/stanford-futuredata/ColBERT}
+    \item RAGatouille: \url{https://github.com/AnswerDotAI/RAGatouille}
+\end{itemize}
+
+\subsection{FAISS: Facebook AI Similarity Search}
+
+FAISS \citep{johnson2017billion} is a library for efficient similarity search in high-dimensional spaces, enabling billion-scale nearest neighbor search.
+
+\subsubsection{Core Components}
+
+\begin{enumerate}
+    \item \textbf{Index Types}:
+    \begin{itemize}
+        \item Flat (exact search)
+        \item IVF (Inverted File Index)
+        \item HNSW (Hierarchical Navigable Small World)
+        \item PQ (Product Quantization)
+    \end{itemize}
+
+    \item \textbf{GPU Acceleration}: Native CUDA support for massive parallelism
+
+    \item \textbf{Compression}: Various quantization schemes for memory efficiency
+\end{enumerate}
+
+\subsubsection{Implementation}
+
+Official repository: \url{https://github.com/facebookresearch/faiss}
+
+\subsection{Sparse vs Dense Retrieval}
+
+\begin{table}[h]
+\centering
+\caption{Comparison of Sparse and Dense Retrieval Approaches}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Aspect} & \textbf{Sparse} & \textbf{Dense} \\
+\midrule
+Representation & Bag-of-words, TF-IDF, BM25 & Neural embeddings \\
+Dimensionality & High (vocabulary size) & Low (128-768) \\
+Matching & Lexical & Semantic \\
+Examples & BM25, SPLADE & DPR, Contriever \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Methodology}
+%==============================================================================
+
+\subsection{Experimental Framework}
+
+Our benchmark framework consists of the following components:
+
+\subsubsection{Embedders (3-5 models)}
+
+\paragraph{Sparse Embedders:}
+\begin{enumerate}
+    \item BM25 (baseline)
+    \item SPLADE
+    \item TF-IDF with subword tokenization
+\end{enumerate}
+
+\paragraph{Dense Embedders:}
+\begin{enumerate}
+    \item sentence-transformers/all-MiniLM-L6-v2
+    \item BAAI/bge-base-en-v1.5
+    \item intfloat/e5-base-v2
+    \item Contriever
+    \item OpenAI text-embedding-ada-002 (optional, for comparison)
+\end{enumerate}
+
+\subsubsection{Open-source LLMs (3-5 models)}
+
+\begin{enumerate}
+    \item Llama 2 (7B/13B)
+    \item Mistral 7B
+    \item Phi-2
+    \item Falcon 7B
+    \item Zephyr 7B
+\end{enumerate}
+
+\subsubsection{RAG Methods}
+
+\begin{enumerate}
+    \item \textbf{ColBERT}: Using RAGatouille implementation
+    \item \textbf{FAISS}: With various index configurations (IVF, HNSW)
+\end{enumerate}
+
+\subsection{Benchmarks (2-3 datasets)}
+
+\begin{enumerate}
+    \item \textbf{MS MARCO}: Large-scale passage retrieval benchmark
+    \item \textbf{Natural Questions}: Open-domain QA dataset
+    \item \textbf{BEIR}: Heterogeneous benchmark suite (optional subset)
+\end{enumerate}
+
+\subsection{Conversational Testing via LangGraph}
+
+We implement conversational evaluation using LangGraph to assess:
+
+\begin{itemize}
+    \item Multi-turn conversation handling
+    \item Context retention across turns
+    \item Query reformulation effectiveness
+    \item Response coherence and relevance
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\fbox{
+\begin{minipage}{0.8\textwidth}
+\centering
+\textbf{LangGraph Workflow}\\[0.3cm]
+User Query $\rightarrow$ Query Processing $\rightarrow$ Retrieval (ColBERT/FAISS)\\
+$\downarrow$\\
+Context Aggregation $\rightarrow$ LLM Generation $\rightarrow$ Response
+\end{minipage}
+}
+\caption{Conversational RAG Pipeline using LangGraph}
+\end{figure}
+
+%==============================================================================
+\section{Evaluation Metrics}
+%==============================================================================
+
+\subsection{Retrieval Metrics}
+
+\begin{itemize}
+    \item \textbf{MRR@k}: Mean Reciprocal Rank at k
+    \item \textbf{Recall@k}: Recall at k documents
+    \item \textbf{NDCG@k}: Normalized Discounted Cumulative Gain
+    \item \textbf{MAP}: Mean Average Precision
+\end{itemize}
+
+\subsection{Generation Metrics}
+
+\begin{itemize}
+    \item \textbf{BLEU}: Bilingual Evaluation Understudy
+    \item \textbf{ROUGE-L}: Longest Common Subsequence
+    \item \textbf{BERTScore}: Semantic similarity using BERT embeddings
+    \item \textbf{Faithfulness}: Factual consistency with retrieved passages
+\end{itemize}
+
+\subsection{Efficiency Metrics}
+
+\begin{itemize}
+    \item Query latency (ms)
+    \item Index size (GB)
+    \item Memory usage
+    \item Throughput (queries/second)
+\end{itemize}
+
+%==============================================================================
+\section{Experimental Setup}
+%==============================================================================
+
+\subsection{Hardware Configuration}
+
+\begin{itemize}
+    \item CPU: [Specify]
+    \item GPU: [Specify]
+    \item RAM: [Specify]
+    \item Storage: [Specify]
+\end{itemize}
+
+\subsection{Software Stack}
+
+\begin{itemize}
+    \item Python 3.10+
+    \item PyTorch 2.0+
+    \item Transformers (Hugging Face)
+    \item LangChain / LangGraph
+    \item RAGatouille (for ColBERT)
+    \item FAISS (CPU/GPU)
+\end{itemize}
+
+\subsection{Implementation Details}
+
+\begin{lstlisting}[language=Python, caption=Example ColBERT Setup with RAGatouille]
+from ragatouille import RAGPretrainedModel
+
+# Initialize ColBERT
+RAG = RAGPretrainedModel.from_pretrained(
+    "colbert-ir/colbertv2.0"
+)
+
+# Index documents
+RAG.index(
+    collection=documents,
+    index_name="my_index",
+    max_document_length=256
+)
+
+# Search
+results = RAG.search(query="example query", k=10)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption=Example FAISS Setup]
+import faiss
+import numpy as np
+
+# Create index
+dimension = 768
+index = faiss.IndexFlatIP(dimension)  # Inner product
+
+# Add vectors
+index.add(document_embeddings)
+
+# Search
+D, I = index.search(query_embedding, k=10)
+\end{lstlisting}
+
+%==============================================================================
+\section{Expected Results}
+%==============================================================================
+
+\subsection{Hypotheses}
+
+\begin{enumerate}
+    \item ColBERT will achieve higher retrieval accuracy due to late interaction
+    \item FAISS will demonstrate superior query latency at large scale
+    \item Dense embedders will outperform sparse on semantic similarity tasks
+    \item Sparse methods will excel on exact match and keyword queries
+    \item Larger LLMs will produce more coherent but slower responses
+\end{enumerate}
+
+\subsection{Results Tables (To be completed)}
+
+\begin{table}[h]
+\centering
+\caption{Retrieval Performance Comparison}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Method} & \textbf{MRR@10} & \textbf{Recall@100} & \textbf{Latency (ms)} & \textbf{Index Size} \\
+\midrule
+ColBERT & -- & -- & -- & -- \\
+FAISS-IVF & -- & -- & -- & -- \\
+FAISS-HNSW & -- & -- & -- & -- \\
+BM25 & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{LLM Generation Quality}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{LLM} & \textbf{BLEU} & \textbf{ROUGE-L} & \textbf{BERTScore} & \textbf{Latency (s)} \\
+\midrule
+Llama 2 7B & -- & -- & -- & -- \\
+Mistral 7B & -- & -- & -- & -- \\
+Phi-2 & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Discussion}
+%==============================================================================
+
+% To be completed after experiments
+
+\subsection{Trade-offs}
+
+\begin{itemize}
+    \item Accuracy vs. Efficiency
+    \item Memory vs. Speed
+    \item Semantic vs. Lexical matching
+    \item Model size vs. Response quality
+\end{itemize}
+
+\subsection{Practical Recommendations}
+
+% To be completed based on results
+
+%==============================================================================
+\section{Conclusion}
+%==============================================================================
+
+This project provides a systematic comparison of ColBERT and FAISS as retrieval backends for RAG systems. By evaluating across multiple embedders, LLMs, and benchmark datasets, we aim to offer practical insights for selecting appropriate retrieval methods based on specific use case requirements.
+
+% Future work section
+\subsection{Future Work}
+
+\begin{itemize}
+    \item Explore hybrid retrieval combining sparse and dense methods
+    \item Investigate fine-tuning embedders on domain-specific data
+    \item Extend to multilingual benchmarks
+    \item Analyze cost-efficiency trade-offs for production deployment
+\end{itemize}
+
+%==============================================================================
+% References
+%==============================================================================
+
+\bibliographystyle{plainnat}
+
+\begin{thebibliography}{9}
+
+\bibitem[Khattab and Zaharia(2020)]{khattab2020colbert}
+Omar Khattab and Matei Zaharia.
+\newblock ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT.
+\newblock In \emph{Proceedings of the 43rd International ACM SIGIR Conference on Research and Development in Information Retrieval}, pages 39--48, 2020.
+\newblock \url{https://arxiv.org/abs/2004.12832}
+
+\bibitem[Johnson et al.(2017)]{johnson2017billion}
+Jeff Johnson, Matthijs Douze, and Hervé Jégou.
+\newblock Billion-scale similarity search with GPUs.
+\newblock \emph{IEEE Transactions on Big Data}, 7(3):535--547, 2017.
+\newblock \url{https://arxiv.org/abs/1702.08734}
+
+\bibitem[Karpukhin et al.(2020)]{karpukhin2020dense}
+Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and Wen-tau Yih.
+\newblock Dense Passage Retrieval for Open-Domain Question Answering.
+\newblock In \emph{Proceedings of EMNLP}, 2020.
+
+\bibitem[Robertson et al.(2009)]{robertson2009probabilistic}
+Stephen Robertson and Hugo Zaragoza.
+\newblock The Probabilistic Relevance Framework: BM25 and Beyond.
+\newblock \emph{Foundations and Trends in Information Retrieval}, 3(4):333--389, 2009.
+
+\bibitem[Formal et al.(2021)]{formal2021splade}
+Thibault Formal, Benjamin Piwowarski, and Stéphane Clinchant.
+\newblock SPLADE: Sparse Lexical and Expansion Model for First Stage Ranking.
+\newblock In \emph{Proceedings of SIGIR}, 2021.
+
+\bibitem[Thakur et al.(2021)]{thakur2021beir}
+Nandan Thakur, Nils Reimers, Andreas Rücklé, Abhishek Srivastava, and Iryna Gurevych.
+\newblock BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models.
+\newblock In \emph{Proceedings of NeurIPS Datasets and Benchmarks}, 2021.
+
+\bibitem[LangChain(2023)]{langgraph2023}
+LangChain.
+\newblock LangGraph: Building Stateful, Multi-Actor Applications with LLMs.
+\newblock \url{https://github.com/langchain-ai/langgraph}, 2023.
+
+\bibitem[Santhanam et al.(2022)]{santhanam2022colbertv2}
+Keshav Santhanam, Omar Khattab, Jon Saad-Falcon, Christopher Potts, and Matei Zaharia.
+\newblock ColBERTv2: Effective and Efficient Retrieval via Lightweight Late Interaction.
+\newblock In \emph{Proceedings of NAACL}, 2022.
+
+\end{thebibliography}
+
+%==============================================================================
+% Appendix
+%==============================================================================
+
+\appendix
+\section{Additional Implementation Details}
+
+\subsection{LangGraph Conversational Test Setup}
+
+\begin{lstlisting}[language=Python, caption=LangGraph RAG Pipeline]
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, List
+
+class RAGState(TypedDict):
+    query: str
+    context: List[str]
+    response: str
+    history: List[dict]
+
+def retrieve(state: RAGState) -> RAGState:
+    # Retrieve using ColBERT or FAISS
+    docs = retriever.search(state["query"], k=5)
+    state["context"] = [doc.text for doc in docs]
+    return state
+
+def generate(state: RAGState) -> RAGState:
+    # Generate response using LLM
+    prompt = format_prompt(state["query"], state["context"])
+    state["response"] = llm.generate(prompt)
+    return state
+
+# Build graph
+workflow = StateGraph(RAGState)
+workflow.add_node("retrieve", retrieve)
+workflow.add_node("generate", generate)
+workflow.add_edge("retrieve", "generate")
+workflow.add_edge("generate", END)
+
+app = workflow.compile()
+\end{lstlisting}
+
+\subsection{Evaluation Script Template}
+
+\begin{lstlisting}[language=Python, caption=Benchmark Evaluation]
+from datasets import load_dataset
+from metrics import compute_mrr, compute_recall
+
+def evaluate_retriever(retriever, dataset, k_values=[10, 100]):
+    results = {}
+    for k in k_values:
+        mrr = compute_mrr(retriever, dataset, k)
+        recall = compute_recall(retriever, dataset, k)
+        results[f"MRR@{k}"] = mrr
+        results[f"Recall@{k}"] = recall
+    return results
+
+# Load benchmark
+msmarco = load_dataset("ms_marco", "v2.1")
+
+# Evaluate
+colbert_results = evaluate_retriever(colbert_retriever, msmarco)
+faiss_results = evaluate_retriever(faiss_retriever, msmarco)
+\end{lstlisting}
+
+\end{document}
