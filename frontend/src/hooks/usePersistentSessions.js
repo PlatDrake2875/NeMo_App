@@ -139,9 +139,16 @@ export function usePersistentSessions(
 		if (isInitialized && sessions) {
 			// Check sessions directly
 			if (Object.keys(sessions).length > 0) {
-				console.log("[Save] Saving sessions to localStorage:", sessions);
+				const totalMessages = Object.values(sessions).reduce(
+					(sum, session) => sum + (session.history?.length || 0),
+					0,
+				);
+				console.log(
+					`[Save] Saving ${Object.keys(sessions).length} session(s) with ${totalMessages} total message(s) to localStorage`,
+				);
 				try {
 					window.localStorage.setItem("chatSessions", JSON.stringify(sessions));
+					console.log("[Save] Successfully saved to localStorage");
 				} catch (error) {
 					console.error("[Save] Error saving sessions to localStorage:", error);
 				}
