@@ -120,7 +120,9 @@ services:
   # vLLM CPU - OpenAI-compatible LLM inference server (CPU-only mode)
   # See vllm-gpu comments above for model switching instructions
   vllm-cpu:
-    image: vllm/vllm-openai:latest
+    image: vllm-cpu-env  # Custom-built CPU image
+    privileged: true  # Required for CPU mode
+    shm_size: '4g'  # Shared memory size
     ports:
       - "8002:8000"
     volumes:
@@ -128,14 +130,17 @@ services:
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # Required for gated models
       - HF_HOME=/root/.cache/huggingface  # Explicit cache location
+      - VLLM_CPU_KVCACHE_SPACE=10  # KV Cache size in GiB
+      - VLLM_CPU_OMP_THREADS_BIND=auto  # CPU thread binding
     command:
-      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
-      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
+      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
+      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
       - --host=0.0.0.0
       - --port=8000
-      - --device=cpu
+      - --dtype=bfloat16
+      - --max-model-len=32768
       - --trust-remote-code
-      - --download-dir=/root/.cache/huggingface  # Use shared cache
+      - --download-dir=/root/.cache/huggingface
     profiles: ["cpu"]
     networks:
       default:
