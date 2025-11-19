@@ -30,9 +30,10 @@ export function useChatSessions(apiBaseUrl) {
 	const {
 		isSubmitting,
 		automationError,
-		handleChatSubmit,
+		handleChatSubmit: handleChatSubmitRaw,
 		handleAutomateConversation,
 		setAutomationError, // Get setter from API hook
+		stopGeneration,
 	} = useChatApi(apiBaseUrl, activeSessionId, setSessions); // Provide dependencies
 
 	// --- Combined Session Management Handlers ---
@@ -134,6 +135,16 @@ export function useChatSessions(apiBaseUrl) {
 		return Array.isArray(history) ? history : [];
 	}, [activeSessionId, sessions, isInitialized]);
 
+	// --- Wrap handleChatSubmit to include conversation history ---
+	const handleChatSubmit = useCallback(
+		async (query, model, agent = null) => {
+			// Get current conversation history and pass it to the API handler
+			const currentHistory = activeChatHistory || [];
+			await handleChatSubmitRaw(query, model, agent, currentHistory);
+		},
+		[handleChatSubmitRaw, activeChatHistory],
+	);
+
 	// --- Exposed API ---
 	return {
 		sessions, // The full sessions object { id: { name, history } }
@@ -153,6 +164,7 @@ export function useChatSessions(apiBaseUrl) {
 		handleRenameSession: renameSession, // Pass rename directly
 		handleChatSubmit, // Interactive chat submit from API hook
 		handleAutomateConversation, // Automated chat submit from API hook
+		stopGeneration, // Stop token generation
 
 		// Potentially useful utilities (optional)
 		// downloadActiveChatHistory, // This could be rebuilt here or moved to its own hook/util

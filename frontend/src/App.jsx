@@ -32,6 +32,7 @@ function App() {
 		clearActiveChatHistory,
 		handleChatSubmit: originalHandleChatSubmit,
 		handleAutomateConversation,
+		stopGeneration,
 	} = useChatSessions(API_BASE_URL);
 
 	const [availableModels, setAvailableModels] = useState([]);
@@ -268,16 +269,18 @@ function App() {
 
 	// --- View Switching Handlers ---
 	const handleViewDocuments = useCallback(() => {
-		console.log("Switching to documents view");
 		setShowAgentSelector(false); // Close agent selector to prevent overlay blocking
 		setCurrentView("documents");
 	}, []);
 
-	const handleBackToChat = useCallback(() => {
-		console.log("Back to Chat button clicked - switching to chat view");
-		setShowAgentSelector(false); // Close agent selector for consistency
-		setCurrentView("chat");
-	}, []);
+	// Wrapper for session selection that also switches to chat view
+	const handleSelectSessionAndSwitchView = useCallback(
+		(sessionId) => {
+			handleSelectSession(sessionId);
+			setCurrentView("chat");
+		},
+		[handleSelectSession],
+	);
 
 	return (
 		<TooltipProvider>
@@ -287,7 +290,7 @@ function App() {
 					activeSessionId={activeSessionId}
 					selectedModel={selectedModel}
 					onNewChat={handleNewChatWithAgent}
-					onSelectSession={handleSelectSession}
+					onSelectSession={handleSelectSessionAndSwitchView}
 					onDeleteSession={handleDeleteSession}
 					onRenameSession={handleRenameSession}
 					onAutomateConversation={handleAutomateConversation}
@@ -313,6 +316,7 @@ function App() {
 							onClearHistory={clearActiveChatHistory}
 							onDownloadHistory={downloadActiveChatHistory}
 							isSubmitting={isChatSubmitting}
+							onStopGeneration={stopGeneration}
 							isDarkMode={isDarkMode}
 							toggleTheme={toggleTheme}
 							availableModels={availableModels}
@@ -327,7 +331,7 @@ function App() {
 							onRefreshModels={fetchModels}
 						/>
 					) : (
-						<DocumentViewer onBackToChat={handleBackToChat} />
+						<DocumentViewer />
 					)}
 				</div>
 

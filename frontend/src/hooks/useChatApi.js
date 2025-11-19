@@ -1,5 +1,5 @@
 // HIA/frontend/src/hooks/useChatApi.js
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 // Assuming API_BASE_URL is defined elsewhere or passed in correctly
 // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -27,9 +27,21 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [automationError, setAutomationError] = useState(null);
 
+	// AbortController to cancel ongoing requests
+	const abortControllerRef = useRef(null);
+
+	// Function to stop ongoing generation
+	const stopGeneration = useCallback(() => {
+		if (abortControllerRef.current) {
+			console.log("Aborting current request...");
+			abortControllerRef.current.abort();
+			abortControllerRef.current = null;
+		}
+	}, []);
+
 	// --- Interactive Chat Submission ---
 	const handleChatSubmit = useCallback(
-		async (query, model, agent = null) => {
+		async (query, model, agent = null, conversationHistory = []) => {
 			if (!activeSessionId || !model || isSubmitting) {
 				console.warn("API Hook: Chat submission prevented.", {
 					activeSessionId,
@@ -42,8 +54,22 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 			console.log(
 				`API Hook: [${activeSessionId} - ${reqId}] SUBMIT starting for model: ${model}`,
 			);
+
+			// Create new AbortController for this request
+			abortControllerRef.current = new AbortController();
+
 			setIsSubmitting(true);
 			setAutomationError(null);
+
+			// Format conversation history for backend (strip id field, keep only sender and text)
+			const formattedHistory = conversationHistory.map((msg) => ({
+				sender: msg.sender,
+				text: msg.text,
+			}));
+
+			console.log(
+				`API Hook: [${activeSessionId} - ${reqId}] Sending ${formattedHistory.length} previous messages as context`,
+			);
 
 			const userMessage = {
 				sender: "user",
@@ -77,6 +103,7 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 
 			let accumulatedBotResponse = "";
 			let streamError = null;
+			let wasAborted = false;
 
 			try {
 				const response = await fetch(chatApiUrl, {
@@ -88,8 +115,10 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 					body: JSON.stringify({
 						query,
 						model,
+						history: formattedHistory, // Include conversation history for context
 						...(agent && { agent_name: agent }), // Include agent_name only if agent is provided
 					}),
+					signal: abortControllerRef.current.signal,
 				});
 
 				if (!response.ok || !response.body) {
@@ -203,22 +232,48 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 					}
 				}
 			} catch (error) {
-				console.error(
-					`API Hook: [${activeSessionId} - ${reqId}] Chat stream error:`,
-					error,
-				);
-				streamError = error;
+				// Check if the request was aborted by the user
+				if (error.name === "AbortError") {
+					console.log(
+						`API Hook: [${activeSessionId} - ${reqId}] Request aborted by user`,
+					);
+					console.log(
+						`API Hook: [${activeSessionId} - ${reqId}] Preserving ${accumulatedBotResponse.length} characters of partial response`,
+					);
+					wasAborted = true;
+					// Don't set streamError - we want to keep the accumulated response
+				} else {
+					console.error(
+						`API Hook: [${activeSessionId} - ${reqId}] Chat stream error:`,
+						error,
+					);
+					streamError = error;
+				}
 			} finally {
 				setSessions((prevSessions) => {
 					if (!prevSessions[activeSessionId]) return prevSessions;
 					const history = prevSessions[activeSessionId].history || [];
 					const botIndex = history.findIndex((msg) => msg.id === botMessageId);
 					if (botIndex === -1) return prevSessions;
+
+					// Determine the final message text
+					let finalText;
+					if (streamError) {
+						finalText = `⚠️ ${streamError?.message || "Unknown stream error"}`;
+					} else if (accumulatedBotResponse) {
+						finalText = accumulatedBotResponse;
+						if (wasAborted) {
+							console.log(
+								`API Hook: [${activeSessionId} - ${reqId}] Saving partial response to conversation history (${finalText.length} chars)`,
+							);
+						}
+					} else {
+						finalText = "...";
+					}
+
 					const finalMsg = {
 						...history[botIndex],
-						text: streamError
-							? `⚠️ Error: ${streamError?.message || "Unknown stream error"}`
-							: accumulatedBotResponse || "...",
+						text: finalText,
 						isLoading: false,
 					};
 					const newHistory = [
@@ -234,10 +289,21 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 						},
 					};
 				});
+
+				// Clean up the AbortController
+				abortControllerRef.current = null;
+
 				setIsSubmitting(false);
-				console.log(
-					`API Hook: [${activeSessionId} - ${reqId}] SUBMIT finished.`,
-				);
+
+				if (wasAborted) {
+					console.log(
+						`API Hook: [${activeSessionId} - ${reqId}] SUBMIT finished (stopped by user, partial response saved to history).`,
+					);
+				} else {
+					console.log(
+						`API Hook: [${activeSessionId} - ${reqId}] SUBMIT finished.`,
+					);
+				}
 			}
 		},
 		[activeSessionId, isSubmitting, setSessions, chatApiUrl],
@@ -414,5 +480,6 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 		handleChatSubmit,
 		handleAutomateConversation,
 		setAutomationError,
+		stopGeneration,
 	};
 }

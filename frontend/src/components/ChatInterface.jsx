@@ -11,6 +11,7 @@ export function ChatInterface({
   onClearHistory,
   onDownloadHistory,
   isSubmitting,
+  onStopGeneration,
   isDarkMode,
   toggleTheme,
   availableModels,
@@ -66,17 +67,17 @@ export function ChatInterface({
             </div>
           </div>
         ) : activeSessionId ? (
-          hasAgent ? (
+          chatHistory.length > 0 || hasAgent ? (
             <ChatHistory chatHistory={chatHistory} isLoading={isSubmitting} />
           ) : (
             <div className="flex items-center justify-center h-full">
               <div className="text-center space-y-3 max-w-md px-6">
                 <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-foreground">
-                  Select an AI Assistant
+                  Start Chatting
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Please select an AI assistant to start chatting or skip to continue without one.
+                  Type a message below to start the conversation. You can select an AI assistant or skip to continue.
                 </p>
               </div>
             </div>
@@ -97,8 +98,13 @@ export function ChatInterface({
       </div>
 
       {/* Input Area - Only show when ready */}
-      {isInitialized && activeSessionId && hasAgent && (
-        <ChatForm onSubmit={onSubmit} disabled={isFormDisabled} />
+      {isInitialized && activeSessionId && (
+        <ChatForm
+          onSubmit={onSubmit}
+          disabled={isFormDisabled}
+          isSubmitting={isSubmitting}
+          onStopGeneration={onStopGeneration}
+        />
       )}
     </main>
   );

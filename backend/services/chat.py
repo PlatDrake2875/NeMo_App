@@ -38,6 +38,7 @@ class ChatService:
         agent_name: Optional[str] = None,
         history: Optional[list[dict]] = None,
         use_rag: Optional[bool] = None,
+        request=None,
     ) -> AsyncGenerator[str, None]:
         if history is None:
             history = []
@@ -58,12 +59,14 @@ class ChatService:
                 stream_id=stream_id,
                 model_name=effective_model_name,
                 agent_name=agent_name,
+                request=request,
             ):
                 yield chunk
         else:
             async for chunk in self._direct_vllm_stream(
                 model_name=effective_model_name,
                 messages_payload=messages_for_llm,
+                request=request,
             ):
                 yield chunk
 
@@ -123,7 +126,7 @@ class ChatService:
         return messages_for_llm
 
     async def _direct_vllm_stream(
-        self, model_name: str, messages_payload: list[dict[str, str]]
+        self, model_name: str, messages_payload: list[dict[str, str]], request=None
     ) -> AsyncGenerator[str, None]:
         """Stream responses directly from vLLM (OpenAI-compatible API)."""
         request_payload = {
@@ -143,6 +146,10 @@ class ChatService:
                     return
 
                 async for line in response.aiter_lines():
+                    # Check if client has disconnected
+                    if request and await request.is_disconnected():
+                        print(f"Client disconnected, stopping vLLM stream")
+                        break
                     if line.startswith("data: "):
                         line_content = line[len("data: "):].strip()
                         if line_content == "[DONE]":
@@ -177,8 +184,14 @@ class ChatService:
         stream_id: str,
         model_name: str,
         agent_name: Optional[str] = None,
+        request=None,
     ) -> AsyncGenerator[str, None]:
         """Stream chat completion using local NeMo Guardrails integration."""
+        # Check if client has disconnected before processing
+        if request and await request.is_disconnected():
+            print(f"Client disconnected before NeMo Guardrails call")
+            return
+
         nemo_instance = await get_local_nemo_instance(agent_name)
 
         if not nemo_instance.is_available():

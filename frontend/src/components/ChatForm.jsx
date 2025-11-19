@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "./ui/button";
-import { Send } from "lucide-react";
+import { Send, Square } from "lucide-react";
 import { cn } from "../lib/utils";
 
-export function ChatForm({ onSubmit, disabled }) {
+export function ChatForm({ onSubmit, disabled, isSubmitting, onStopGeneration }) {
   const [query, setQuery] = useState("");
   const textareaRef = useRef(null);
   const chatInputId = useId();
@@ -72,15 +72,27 @@ export function ChatForm({ onSubmit, disabled }) {
             />
           </div>
 
-          <Button
-            type="submit"
-            size="icon"
-            disabled={!query.trim() || disabled}
-            className="h-[52px] w-[52px] shrink-0"
-            aria-label="Send message"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
+          {isSubmitting ? (
+            <Button
+              type="button"
+              size="icon"
+              onClick={onStopGeneration}
+              className="h-[52px] w-[52px] shrink-0 bg-destructive hover:bg-destructive/90"
+              aria-label="Stop generation"
+            >
+              <Square className="h-5 w-5" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!query.trim() || disabled}
+              className="h-[52px] w-[52px] shrink-0"
+              aria-label="Send message"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          )}
         </div>
 
         <div className="mt-2 text-xs text-muted-foreground text-center">
