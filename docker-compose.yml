@@ -22,7 +22,7 @@ services:
       - VLLM_MODEL=meta-llama/Llama-3.2-3B-Instruct
       - EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
       - USE_GUARDRAILS=false
-      - RAG_ENABLED=false
+      - RAG_ENABLED=true
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # For downloading gated models
     depends_on:
       postgres:

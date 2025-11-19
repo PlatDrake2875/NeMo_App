@@ -5,7 +5,7 @@ import styles from "./DocumentViewer.module.css";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DOCUMENTS_API_URL = `${API_BASE_URL}/api/documents`;
 
-export function DocumentViewer({ onBackToChat }) {
+export function DocumentViewer() {
 	const [allDocuments, setAllDocuments] = useState([]); // Store all fetched docs
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState(null);
@@ -95,15 +95,6 @@ export function DocumentViewer({ onBackToChat }) {
 		setSelectedSource(event.target.value);
 	};
 
-	// --- Handle back to chat with defensive check ---
-	const handleBackClick = () => {
-		if (typeof onBackToChat === "function") {
-			onBackToChat();
-		} else {
-			console.error("onBackToChat is not a function:", onBackToChat);
-		}
-	};
-
 	return (
 		<div className={styles.documentViewer}>
 			<header className={styles.viewerHeader}>
@@ -140,13 +131,6 @@ export function DocumentViewer({ onBackToChat }) {
 							</select>
 						</div>
 					)}
-					<button
-						type="button"
-						onClick={handleBackClick}
-						className={styles.backButton}
-					>
-						&larr; Back to Chat
-					</button>
 				</div>
 			</header>
 
