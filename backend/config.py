@@ -27,6 +27,17 @@ POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "nemo_password")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "rag_documents")  # Used as table name
 
+# Vector Store Backend Configuration
+# Options: "pgvector" (default) or "qdrant"
+VECTOR_STORE_BACKEND = os.getenv("VECTOR_STORE_BACKEND", "pgvector")
+
+# Qdrant Configuration
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_GRPC_PORT = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Optional, for Qdrant Cloud
+QDRANT_PREFER_GRPC = os.getenv("QDRANT_PREFER_GRPC", "false").lower() == "true"
+
 # Build PostgreSQL connection strings
 # SQLAlchemy-style URI for PGVector and other SQLAlchemy-based libraries
 POSTGRES_CONNECTION_STRING = (

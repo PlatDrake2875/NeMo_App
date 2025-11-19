@@ -6,13 +6,12 @@ Provides factory methods and caching for dataset-specific embedders and vectorst
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
-from langchain_postgres import PGVector
-from langchain_postgres.vectorstores import PGVector as LangchainPGVector
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 
-from config import POSTGRES_CONNECTION_STRING, logger
+from config import VECTOR_STORE_BACKEND, logger
 from schemas import EmbedderConfig
+from vectorstore_factory import create_vectorstore
 
 
 class MultiEmbedderManager:
@@ -22,7 +21,7 @@ class MultiEmbedderManager:
         # Cache for embedders: {(model_name, model_type): embedder_instance}
         self._embedder_cache: Dict[tuple[str, str], Any] = {}
         # Cache for vectorstores: {collection_name: vectorstore_instance}
-        self._vectorstore_cache: Dict[str, LangchainPGVector] = {}
+        self._vectorstore_cache: Dict[str, Any] = {}  # Can be PGVector or QdrantVectorStore
 
     def get_embedder(self, embedder_config: EmbedderConfig) -> Any:
         """
@@ -62,10 +61,12 @@ class MultiEmbedderManager:
         self,
         collection_name: str,
         embedder_config: EmbedderConfig,
-        use_cache: bool = True
-    ) -> LangchainPGVector:
+        use_cache: bool = True,
+        backend: Optional[str] = None
+    ) -> Any:
         """
         Get or create a vectorstore for a specific dataset collection.
+        Supports both PGVector and Qdrant backends.
         """
         # Return cached vectorstore if available and caching is enabled
         if use_cache and collection_name in self._vectorstore_cache:
@@ -75,15 +76,17 @@ class MultiEmbedderManager:
         # Get the embedder for this dataset
         embedder = self.get_embedder(embedder_config)
 
-        # Create vectorstore
-        logger.info(f"Creating new vectorstore for collection: {collection_name}")
+        # Use configured backend or override
+        vector_backend = backend or VECTOR_STORE_BACKEND
+
+        # Create vectorstore using factory
+        logger.info(f"Creating new {vector_backend} vectorstore for collection: {collection_name}")
 
         try:
-            vectorstore = PGVector(
-                connection=POSTGRES_CONNECTION_STRING,
-                embeddings=embedder,
+            vectorstore = create_vectorstore(
+                embedding_function=embedder,
                 collection_name=collection_name,
-                use_jsonb=True,
+                backend=vector_backend,
             )
 
             # Cache the vectorstore

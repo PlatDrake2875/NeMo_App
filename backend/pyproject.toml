@@ -19,6 +19,8 @@ dependencies = [
     "langchain-huggingface",
     "langchain-openai",
     "langchain-postgres",
+    "langchain-qdrant",
+    "qdrant-client",
     "psycopg[binary,pool]",
     "sentence-transformers",
     "pypdf",

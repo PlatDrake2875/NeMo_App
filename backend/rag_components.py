@@ -4,8 +4,6 @@ from typing import Any, Optional
 from fastapi import (
     HTTPException,  # Ensure Depends is imported if used directly here, though typically in routers
 )
-from langchain_postgres import PGVector
-from langchain_postgres.vectorstores import PGVector as LangchainPGVector
 from langchain_core.documents import Document
 from langchain_core.messages import (  # Removed SystemMessage as it wasn't used
     AIMessage,
@@ -18,7 +16,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 
 from config import (
-    POSTGRES_CONNECTION_STRING,
     POSTGRES_LIBPQ_CONNECTION,
     COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
@@ -26,11 +23,13 @@ from config import (
     RAG_ENABLED,
     RAG_PROMPT_TEMPLATE_STR,
     SIMPLE_PROMPT_TEMPLATE_STR,
+    VECTOR_STORE_BACKEND,
     VLLM_BASE_URL,
     VLLM_MODEL,
     VLLM_MODEL_FOR_AUTOMATION,
     logger,
 )
+from vectorstore_factory import create_vectorstore
 
 
 class RAGComponents:
@@ -48,7 +47,7 @@ class RAGComponents:
         if not self._initialized:
             self.pg_connection: Optional[Any] = None
             self.embedding_function: Optional[HuggingFaceEmbeddings] = None
-            self.vectorstore: Optional[LangchainPGVector] = None
+            self.vectorstore: Optional[Any] = None  # Can be PGVector or QdrantVectorStore
             self.retriever: Optional[Any] = None
             self.vllm_chat_for_rag: Optional[ChatOpenAI] = None
             self.vllm_chat_for_automation: Optional[ChatOpenAI] = None
@@ -57,6 +56,7 @@ class RAGComponents:
             self.rag_context_prefix_prompt_template_obj: Optional[
                 ChatPromptTemplate
             ] = None
+            self.vectorstore_backend: str = VECTOR_STORE_BACKEND
             RAGComponents._initialized = True
 
     def setup_components(self):
@@ -64,26 +64,27 @@ class RAGComponents:
         # 1. Embedding Function
         self.embedding_function = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
 
-        # 2. PostgreSQL PGVector Vectorstore
+        # 2. Vector Store (PGVector or Qdrant based on configuration)
         if self.embedding_function:
             try:
-                # Initialize PGVector with connection string
-                self.vectorstore = PGVector(
-                    connection=POSTGRES_CONNECTION_STRING,
-                    embeddings=self.embedding_function,
+                # Use factory to create the appropriate vectorstore
+                self.vectorstore = create_vectorstore(
+                    embedding_function=self.embedding_function,
                     collection_name=COLLECTION_NAME,
-                    use_jsonb=True,
+                    backend=VECTOR_STORE_BACKEND,
                 )
 
-                # The PGVector will automatically create the extension and tables if needed
-                logger.info(f"Initialized PGVector with collection: {COLLECTION_NAME}")
+                logger.info(f"Initialized {VECTOR_STORE_BACKEND} vectorstore with collection: {COLLECTION_NAME}")
 
                 self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": 3})
-                self.pg_connection = POSTGRES_LIBPQ_CONNECTION  # Store libpq format for health checks
+
+                # Store pg_connection for health checks (only relevant for pgvector)
+                if VECTOR_STORE_BACKEND == "pgvector":
+                    self.pg_connection = POSTGRES_LIBPQ_CONNECTION
 
             except Exception as e:
                 logger.critical(
-                    "Failed to initialize PostgreSQL PGVector/vectorstore/retriever: %s",
+                    "Failed to initialize vectorstore/retriever: %s",
                     e,
                     exc_info=True,
                 )
@@ -167,7 +168,8 @@ def get_pg_connection() -> str:
     return rag_components.pg_connection
 
 
-def get_vectorstore() -> LangchainPGVector:
+def get_vectorstore() -> Any:
+    """Get the vector store (PGVector or Qdrant based on configuration)."""
     rag_components = get_rag_components()
     if rag_components.vectorstore is None:
         raise HTTPException(status_code=503, detail="Vector store is not available.")
