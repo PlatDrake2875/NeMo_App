@@ -43,15 +43,18 @@ print_info() {
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--gpu|--cpu]"
+    echo "Usage: $0 [--gpu|--cpu] [--qdrant|--pgvector]"
     echo ""
     echo "Options:"
-    echo "  --gpu    Start with GPU-accelerated vLLM (requires NVIDIA GPU)"
-    echo "  --cpu    Start with CPU-only vLLM (slower, but works without GPU)"
+    echo "  --gpu      Start with GPU-accelerated vLLM (requires NVIDIA GPU)"
+    echo "  --cpu      Start with CPU-only vLLM (slower, but works without GPU)"
+    echo "  --qdrant   Use Qdrant as vector store backend"
+    echo "  --pgvector Use PostgreSQL/pgvector as vector store backend (default)"
     echo ""
     echo "Examples:"
     echo "  $0 --gpu"
-    echo "  $0 --cpu"
+    echo "  $0 --cpu --qdrant"
+    echo "  $0 --gpu --pgvector"
     exit 1
 }
 
@@ -383,6 +386,17 @@ show_status() {
     echo -e "${GREEN}API Docs:${NC}    http://localhost:8000/docs"
     echo -e "${GREEN}PostgreSQL:${NC}  localhost:5432 (nemo_rag database)"
     echo -e "${GREEN}vLLM API:${NC}    http://localhost:8002/v1/models"
+    if [ "$VECTOR_STORE_BACKEND" = "qdrant" ]; then
+        echo -e "${GREEN}Qdrant:${NC}      http://localhost:6333/dashboard"
+    fi
+
+    print_header "Vector Store Configuration"
+    if [ "$VECTOR_STORE_BACKEND" = "qdrant" ]; then
+        echo -e "${GREEN}Backend:${NC}     Qdrant"
+        echo -e "${GREEN}Dashboard:${NC}   http://localhost:6333/dashboard"
+    else
+        echo -e "${GREEN}Backend:${NC}     PostgreSQL/pgvector"
+    fi
 
     print_header "Hot Reload Status"
     echo -e "${GREEN}✓${NC} Frontend: Hot reload enabled (Vite HMR)"
@@ -408,25 +422,59 @@ main() {
     fi
 
     MODE=""
-    MODE_FLAG="$1"
-    case "$1" in
-        --gpu)
-            MODE="gpu"
-            print_info "Starting with GPU-accelerated vLLM"
-            ;;
-        --cpu)
-            MODE="cpu"
-            print_info "Starting with CPU-only vLLM"
-            print_warning "Note: CPU mode will be slower than GPU mode"
-            ;;
-        *)
-            echo "Error: Invalid option '$1'"
-            usage
-            ;;
-    esac
+    MODE_FLAG=""
+    VECTOR_BACKEND="pgvector"  # Default to pgvector
+
+    # Parse all arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --gpu)
+                MODE="gpu"
+                MODE_FLAG="--gpu"
+                ;;
+            --cpu)
+                MODE="cpu"
+                MODE_FLAG="--cpu"
+                ;;
+            --qdrant)
+                VECTOR_BACKEND="qdrant"
+                ;;
+            --pgvector)
+                VECTOR_BACKEND="pgvector"
+                ;;
+            *)
+                echo "Error: Invalid option '$1'"
+                usage
+                ;;
+        esac
+        shift
+    done
+
+    # Check if mode was specified
+    if [ -z "$MODE" ]; then
+        echo "Error: No compute mode specified (--gpu or --cpu required)."
+        usage
+    fi
+
+    # Display configuration
+    if [ "$MODE" = "gpu" ]; then
+        print_info "Starting with GPU-accelerated vLLM"
+    else
+        print_info "Starting with CPU-only vLLM"
+        print_warning "Note: CPU mode will be slower than GPU mode"
+    fi
+
+    if [ "$VECTOR_BACKEND" = "qdrant" ]; then
+        print_info "Using Qdrant as vector store backend"
+    else
+        print_info "Using PostgreSQL/pgvector as vector store backend"
+    fi
 
     # Set the Docker Compose profiles
     export COMPOSE_PROFILES="fullstack,$MODE"
+
+    # Set vector store backend environment variable
+    export VECTOR_STORE_BACKEND="$VECTOR_BACKEND"
 
     # Run checks
     check_prerequisites

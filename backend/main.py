@@ -12,6 +12,7 @@ from routers import (
     automate_router,
     chat_router,
     chunking_router,
+    config_router,
     dataset_router,
     document_router,
     health_router,
@@ -64,6 +65,7 @@ app.include_router(health_router.router)
 app.include_router(agents_router.router)
 app.include_router(chat_router.router, prefix="/api", tags=["Chat Endpoints"])
 app.include_router(model_router.router, prefix="/api", tags=["Model Endpoints"])
+app.include_router(config_router.router, prefix="/api", tags=["Config Endpoints"])
 app.include_router(dataset_router.router, prefix="/api", tags=["Dataset Endpoints"])
 app.include_router(chunking_router.router, prefix="/api", tags=["Chunking Endpoints"])
 app.include_router(document_router.router, prefix="/api", tags=["Document Endpoints"])

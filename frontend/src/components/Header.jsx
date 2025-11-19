@@ -1,5 +1,6 @@
-import { useId, useState } from "react";
+import { useId, useState, useEffect } from "react";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ import {
   Sparkles,
   ChevronDown,
   Plus,
+  Database,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { ModelDownloadDialog } from "./ModelDownloadDialog";
@@ -43,6 +45,23 @@ export function Header({
   const isHistoryEmpty =
     !Array.isArray(chatHistory) || chatHistory.length === 0;
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [vectorStoreBackend, setVectorStoreBackend] = useState(null);
+
+  // Fetch vector store configuration on mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await fetch("/api/config/vector-store");
+        if (response.ok) {
+          const data = await response.json();
+          setVectorStoreBackend(data.backend);
+        }
+      } catch (error) {
+        console.error("Failed to fetch vector store config:", error);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   const handleDownloadComplete = (modelId) => {
     // Refresh the models list
@@ -60,6 +79,17 @@ export function Header({
             <Sparkles className="h-5 w-5 text-primary flex-shrink-0" />
             <h1 className="text-lg font-semibold truncate">{title}</h1>
           </div>
+          {/* Vector Store Backend Badge */}
+          {vectorStoreBackend && (
+            <Badge
+              variant={vectorStoreBackend === "qdrant" ? "default" : "secondary"}
+              className="flex items-center gap-1 text-xs"
+              title={`Vector Store: ${vectorStoreBackend}`}
+            >
+              <Database className="h-3 w-3" />
+              {vectorStoreBackend === "qdrant" ? "Qdrant" : "PGVector"}
+            </Badge>
+          )}
         </div>
 
         {/* Controls Section */}
