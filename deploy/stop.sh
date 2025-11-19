@@ -125,6 +125,12 @@ show_status() {
     echo -e "${BLUE}To start services again:${NC} ./deploy/start.sh"
 }
 
+docker_cleanup() {
+    docker compose --profile fullstack --profile gpu down
+    docker network prune -f
+}
+
+
 # Main execution
 main() {
     print_header "NeMo App - Graceful Shutdown"
@@ -132,7 +138,8 @@ main() {
     stop_services
     show_cleanup_options
     show_status
-
+    docker_cleanup
+    
     print_success "Shutdown complete!"
 }
 
