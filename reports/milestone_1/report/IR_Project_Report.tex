@@ -84,7 +84,7 @@ S_{q,d} = \sum_{i} \max_{j} E_{q_i} \cdot E_{d_j}^T
 \textbf{Implementations}:
 \begin{itemize}[noitemsep]
     \item Official: \url{https://github.com/stanford-futuredata/ColBERT}
-    \item RAGatouille: \url{https://github.com/AnswerDotAI/RAGatouille}
+    \item RAGatouille: \url{https://github.com/AnswerDotAI/RAGatouille} (used in this project)
 \end{itemize}
 
 \subsection{FAISS -- Similarity Search at Scale}
@@ -125,8 +125,8 @@ Language & Python 3.10+ \\
 Deep Learning & PyTorch 2.0+ \\
 LLM Framework & Transformers, vLLM \\
 RAG Pipeline & LangChain, LangGraph \\
-ColBERT & RAGatouille \\
-Vector Search & FAISS (CPU/GPU) \\
+ColBERT & RAGatouille (colbert-ir/colbertv2.0) \\
+Vector Search & FAISS (CPU/GPU), PGVector \\
 Embeddings & Sentence-Transformers \\
 Evaluation & datasets, ranx \\
 \bottomrule
@@ -201,6 +201,51 @@ LangGraph orchestrates the conversational RAG pipeline:
     \item History-aware query reformulation
 \end{itemize}
 
+\subsection{Implementation Status}
+
+\subsubsection{Current Progress}
+
+As of Milestone 1, the following components have been implemented on the \texttt{miriam/colbert-integration} branch:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{ColBERT Retriever Module}: Complete implementation using RAGatouille library with the official ColBERTv2.0 model (\texttt{colbert-ir/colbertv2.0})
+    \item \textbf{Core Functionality}: Document indexing with late interaction search, returning ranked results with relevance scores
+    \item \textbf{Test Suite}: Validation scripts demonstrating indexing and retrieval on sample datasets
+    \item \textbf{Vector Database}: PGVector backend for FAISS integration
+    \item \textbf{RAG Pipeline}: LangChain-based retrieval-augmented generation with vLLM
+\end{itemize}
+
+\subsubsection{Technical Implementation Details}
+
+\textbf{ColBERT Configuration:}
+\begin{itemize}[noitemsep]
+    \item Model: \texttt{colbert-ir/colbertv2.0}
+    \item Library: RAGatouille (Python wrapper)
+    \item Max document length: 512 tokens (configurable)
+    \item Index storage: Local filesystem (\texttt{.ragatouille} directory)
+    \item LangChain integration: Full compatibility with Document objects
+\end{itemize}
+
+\textbf{Code Organization:}
+\begin{itemize}[noitemsep]
+    \item \texttt{backend/colbert\_retriever.py}: Core retriever implementation (101 lines)
+    \item \texttt{backend/test\_colbert.py}: Integration testing
+    \item \texttt{backend/rag\_components.py}: RAG pipeline orchestration
+    \item \texttt{backend/multi\_embedder\_manager.py}: Multi-model embedding support
+\end{itemize}
+
+\subsubsection{Ongoing Development}
+
+The following features are currently under development:
+
+\begin{itemize}[noitemsep]
+    \item Integration of ColBERT retriever with main FastAPI application
+    \item API endpoints for ColBERT document indexing and search
+    \item Reranking functionality for hybrid retrieval approaches
+    \item Comparative benchmarking framework between ColBERT and FAISS
+    \item LangGraph integration for conversational RAG with multiple retrieval strategies
+\end{itemize}
+
 %==============================================================================
 \section{Potential Challenges}
 %==============================================================================
@@ -248,12 +293,35 @@ Setup complexity & More complex & Simpler \\
 \section{Timeline and Deliverables}
 %==============================================================================
 
+\subsection{Project Stages}
+
 \begin{enumerate}[noitemsep]
     \item \textbf{Stage 1} (Current): Project description, architecture, technology selection
     \item \textbf{Stage 2}: Implementation of retrieval pipelines
     \item \textbf{Stage 3}: Benchmark evaluation and results analysis
     \item \textbf{Final}: Complete report with findings and recommendations
 \end{enumerate}
+
+\subsection{Milestone 1 Achievements}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Architecture Design}: Complete system architecture for dual-retriever RAG system
+    \item \textbf{Technology Stack}: Selection and validation of core technologies (RAGatouille, FAISS, vLLM, LangChain)
+    \item \textbf{ColBERT Implementation}: Working ColBERT retriever module with indexing and search capabilities
+    \item \textbf{Development Environment}: Dockerized setup with PostgreSQL, vLLM, and frontend
+    \item \textbf{Test Framework}: Unit tests and integration tests for retrieval components
+\end{itemize}
+
+\subsection{Next Steps for Stage 2}
+
+\begin{itemize}[noitemsep]
+    \item Merge ColBERT integration branch into main codebase
+    \item Implement unified API endpoints for both retrieval methods
+    \item Develop comparative benchmarking scripts using MS MARCO dataset
+    \item Create evaluation metrics dashboard
+    \item Integrate multiple embedding models (BM25, SPLADE, MiniLM, BGE, E5)
+    \item Conduct initial performance testing on target hardware
+\end{itemize}
 
 %==============================================================================
 % References

@@ -211,10 +211,10 @@ $$S_{q,d} = \sum_{i} \max_{j} E_{q_i} \cdot E_{d_j}^T$$
     \item \textbf{Sparse}: BM25, SPLADE
     \item \textbf{Dense}: bge-base, e5-base
     \item \textbf{LLMs}: Mistral, Phi-3
-    \item \textbf{Benchmarks}:
+    \item \textbf{Evaluation Datasets}:
         \begin{itemize}
+            \item Natural Questions (NQ)
             \item MS MARCO
-            \item Natural Questions
         \end{itemize}
 \end{itemize}
 \end{columns}
@@ -343,32 +343,22 @@ Database & PostgreSQL 16 \\
 %==============================================================================
 % Slide 10: Evaluation Metrics -- Planned for Stage 3
 %==============================================================================
-\begin{frame}{Evaluation Metrics \textcolor{red}{[Stage 3]}}
+\begin{frame}{Evaluation Datasets \& Metrics \textcolor{red}{[Stage 3]}}
 
 \begin{columns}
 \column{0.5\textwidth}
-\textbf{Retrieval Metrics (Planned)}:
+\textbf{Evaluation Datasets}:
 \begin{itemize}
-    \item MRR@k (Mean Reciprocal Rank)
-    \item Recall@k
-    \item NDCG@k
-\end{itemize}
-
-\vspace{0.3cm}
-
-\textbf{Generation Metrics (Planned)}:
-\begin{itemize}
-    \item BLEU, ROUGE-L
-    \item BERTScore
-\end{itemize}
-
-\column{0.5\textwidth}
-\textbf{Efficiency Metrics (Planned)}:
-\begin{itemize}
-    \item Query latency (ms)
-    \item Index size (GB)
-    \item Memory usage
-    \item Throughput (QPS)
+    \item \textbf{Natural Questions (NQ)}
+        \begin{itemize}
+            \item Google queries + Wikipedia
+            \item Factoid QA (PDF use case)
+        \end{itemize}
+    \item \textbf{MS MARCO}
+        \begin{itemize}
+            \item Bing queries + 8.8M passages
+            \item Large-scale ranking
+        \end{itemize}
 \end{itemize}
 
 \vspace{0.3cm}
@@ -377,6 +367,29 @@ Database & PostgreSQL 16 \\
 \begin{itemize}
     \item Qualitative evaluation
     \item Manual testing
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{Retrieval Metrics}:
+\begin{itemize}
+    \item \textbf{MRR@10}: Position of first relevant result
+    \item \textbf{Recall@20}: \% of relevant docs found
+    \item \textbf{nDCG@10}: Ranking quality (best on top)
+\end{itemize}
+
+\vspace{0.3cm}
+
+\textbf{Generation Metrics}:
+\begin{itemize}
+    \item \textbf{BERTScore}: Semantic similarity with gold answer
+    \item \textbf{Answer Relevance}: Does answer address query?
+\end{itemize}
+
+\vspace{0.3cm}
+
+\textbf{Efficiency}:
+\begin{itemize}
+    \item Query latency, memory, throughput
 \end{itemize}
 \end{columns}
 
@@ -441,9 +454,8 @@ Index Size & Moderate & Larger \\
             \item NeMo Guardrails implementation
             \item Full-stack deployment (React + FastAPI + vLLM)
         \end{itemize}
-    \item \textbf{Stage 2 -- Planned}: Add ColBERT, FAISS, sparse embeddings
-    \item \textbf{Stage 3 -- Planned}: Benchmark evaluation (MS MARCO, NQ)
-    \item \textbf{Stage 4 -- Final}: Comparative analysis \& report
+    \item \textbf{Stage 2 -- Planned}: Fully Integrate ColBERT, HippoRAG and Benchmark evaluation (MS MARCO, NQ) on everything so far
+    \item \textbf{Stage 3 -- Final}: Comparative analysis 
 \end{enumerate}
 
 \vspace{0.3cm}

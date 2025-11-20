@@ -1,9 +1,9 @@
-PWD /home/ldg/NeMo_App/docs
+PWD /home/ldg/NeMo_App/reports/milestone_1/presentation
 INPUT /etc/texmf/web2c/texmf.cnf
 INPUT /usr/share/texmf/web2c/texmf.cnf
 INPUT /usr/share/texlive/texmf-dist/web2c/texmf.cnf
 INPUT /var/lib/texmf/web2c/pdftex/pdflatex.fmt
-INPUT /home/ldg/NeMo_App/docs/IR_Project_Presentation.tex
+INPUT IR_Project_Presentation.tex
 OUTPUT IR_Project_Presentation.log
 INPUT /usr/share/texlive/texmf-dist/tex/latex/beamer/beamer.cls
 INPUT /usr/share/texlive/texmf-dist/tex/latex/beamer/beamer.cls
