@@ -14,7 +14,7 @@ import { useChatSessions } from "./hooks/useChatSessions";
 import { useTheme } from "./hooks/useTheme";
 
 // Define the backend API URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 function App() {
 	const { isDarkMode, toggleTheme } = useTheme();

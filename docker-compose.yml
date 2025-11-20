@@ -45,6 +45,7 @@ services:
     environment:
       - VITE_API_BASE_URL=http://backend:8000  # Points to containerized backend
       - CHOKIDAR_USEPOLLING=true
+      - VITE_API_URL=/api
     depends_on:
       backend:
         condition: service_healthy
@@ -156,3 +157,6 @@ services:
 volumes:
   postgres_data:
   vllm_cache:
+
+# Note: Frontend needs to know the external backend URL
+# Add this to frontend service environment:
