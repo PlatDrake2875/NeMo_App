@@ -21,6 +21,7 @@ dependencies = [
     "langchain-postgres",
     "psycopg[binary,pool]",
     "sentence-transformers",
+    "ragatouille",
     "pypdf",
     "tiktoken",
     "nemoguardrails==0.13.0",
