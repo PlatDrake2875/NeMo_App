@@ -45,7 +45,6 @@ services:
     environment:
       - VITE_API_BASE_URL=http://backend:8000  # Points to containerized backend
       - CHOKIDAR_USEPOLLING=true
-      - VITE_API_URL=/api
     depends_on:
       backend:
         condition: service_healthy
