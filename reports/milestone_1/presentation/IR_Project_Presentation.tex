@@ -37,31 +37,40 @@
 
 \textbf{Goal}: Benchmark RAG retrieval methods for Information Retrieval
 
-\vspace{0.3cm}
+\vspace{0.2cm}
 
 \begin{columns}
 \column{0.5\textwidth}
 \textbf{Stage 1 -- Implemented:}
 \begin{itemize}
     \item Production RAG application
-    \item pgvector \& Qdrant stores
+    \item pgvector vector store
     \item Dense embeddings baseline
     \item NeMo Guardrails integration
+\end{itemize}
+
+\vspace{0.2cm}
+
+\textbf{Stage 1.5 -- Research:}
+\begin{itemize}
+    \item ColBERT prototype (RAGatouille)
+    \item Not production-integrated
 \end{itemize}
 
 \column{0.5\textwidth}
 \textbf{Stage 2/3 -- Planned:}
 \begin{itemize}
-    \item ColBERT vs FAISS comparison
+    \item Full ColBERT integration
+    \item FAISS comparison
     \item Sparse embeddings (BM25, SPLADE)
     \item Benchmark evaluation
     \item Performance analysis
 \end{itemize}
 \end{columns}
 
-\vspace{0.3cm}
+\vspace{0.2cm}
 
-\textbf{Approach}: Build working baseline, then add comparison methods
+\textbf{Approach}: Baseline $\to$ Prototype $\to$ Integration $\to$ Benchmarks
 
 \end{frame}
 
@@ -100,9 +109,9 @@
 \end{frame}
 
 %==============================================================================
-% Slide 4: ColBERT -- Planned for Stage 2
+% Slide 4: ColBERT -- Stage 1.5 Prototype
 %==============================================================================
-\begin{frame}{ColBERT -- Late Interaction Retrieval \textcolor{red}{[Stage 2]}}
+\begin{frame}{ColBERT -- Late Interaction Retrieval \textcolor{orange}{[Stage 1.5]}}
 
 \begin{columns}
 \column{0.6\textwidth}
@@ -138,13 +147,46 @@ $$S_{q,d} = \sum_{i} \max_{j} E_{q_i} \cdot E_{d_j}^T$$
 
 \vspace{0.2cm}
 
-\textbf{Current}: Using standard dense embeddings with cosine similarity
+\textbf{Prototype Status}: Standalone module using RAGatouille, not yet integrated into production
 \end{columns}
 
 \end{frame}
 
 %==============================================================================
-% Slide 5: FAISS -- Planned for Stage 2
+% Slide 5: ColBERT Prototype Implementation
+%==============================================================================
+\begin{frame}{ColBERT Prototype Implementation \textcolor{orange}{[Stage 1.5]}}
+
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Implementation Details}:
+\begin{itemize}
+    \item \textbf{Library}: RAGatouille (Python wrapper)
+    \item \textbf{Model}: colbert-ir/colbertv2.0
+    \item \textbf{Features}: Indexing + Late interaction search
+    \item \textbf{Max doc length}: 512 characters
+    \item \textbf{File}: \texttt{colbert\_retriever.py}
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{Current Status}:
+\begin{itemize}
+    \item[$\checkmark$] Standalone retriever module
+    \item[$\checkmark$] Test scripts working
+    \item[$\times$] Not integrated into FastAPI
+    \item[$\times$] Not accessible via UI
+    \item[$\times$] No benchmarks vs current system
+\end{itemize}
+
+\vspace{0.3cm}
+
+\textbf{Next Steps}: API integration, benchmarking, production deployment
+\end{columns}
+
+\end{frame}
+
+%==============================================================================
+% Slide 6: FAISS -- Planned for Stage 2
 %==============================================================================
 \begin{frame}{FAISS -- Similarity Search at Scale \textcolor{red}{[Stage 2]}}
 
@@ -222,7 +264,7 @@ $$S_{q,d} = \sum_{i} \max_{j} E_{q_i} \cdot E_{d_j}^T$$
 \end{frame}
 
 %==============================================================================
-% Slide 7: Technology Stack
+% Slide 8: Technology Stack
 %==============================================================================
 \begin{frame}{Technology Stack -- Current Implementation}
 
@@ -239,7 +281,8 @@ Frontend & React 19 + Vite \\
 Styling & TailwindCSS \\
 LLM Serving & vLLM \\
 RAG & LangChain \\
-Vectors & pgvector, Qdrant \\
+Vectors (Prod) & pgvector \\
+ColBERT (Proto) & RAGatouille \\
 Guardrails & NeMo 0.13.0 \\
 Database & PostgreSQL 16 \\
 \bottomrule
@@ -252,6 +295,7 @@ Database & PostgreSQL 16 \\
     \item sentence-transformers
     \item PyPDF (document processing)
     \item Server-Sent Events (SSE)
+    \item RAGatouille (ColBERT prototype)
 \end{itemize}
 
 \vspace{0.3cm}
@@ -441,7 +485,7 @@ Index Size & Moderate & Larger \\
 \end{frame}
 
 %==============================================================================
-% Slide 12: Timeline & Questions
+% Slide 13: Timeline & Questions
 %==============================================================================
 \begin{frame}{Project Timeline \& Questions}
 
@@ -450,21 +494,27 @@ Index Size & Moderate & Larger \\
     \item \textbf{Stage 1 -- COMPLETED (Nov 2025)}:
         \begin{itemize}
             \item Production RAG baseline application
-            \item pgvector \& Qdrant integration
+            \item pgvector integration
             \item NeMo Guardrails implementation
             \item Full-stack deployment (React + FastAPI + vLLM)
         \end{itemize}
-    \item \textbf{Stage 2 -- Planned}: Fully Integrate ColBERT, HippoRAG and Benchmark evaluation (MS MARCO, NQ) on everything so far
-    \item \textbf{Stage 3 -- Final}: Comparative analysis 
+    \item \textbf{Stage 1.5 -- IN PROGRESS}:
+        \begin{itemize}
+            \item ColBERT prototype (RAGatouille)
+            \item Standalone module, requires integration
+        \end{itemize}
+    \item \textbf{Stage 2 -- Planned}: Fully integrate ColBERT, HippoRAG and FAISS
+    \item \textbf{Stage 3 -- Planned}: Benchmark evaluation (MS MARCO, NQ)
+    \item \textbf{Stage 4 -- Final}: Comparative analysis \& report
 \end{enumerate}
 
-\vspace{0.3cm}
+\vspace{0.2cm}
 
 \begin{center}
 \Large
 \textbf{Questions?}
 
-\vspace{0.2cm}
+\vspace{0.1cm}
 
 \normalsize
 Thank you for your attention!
