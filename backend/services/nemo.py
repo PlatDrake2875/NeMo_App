@@ -1,8 +1,11 @@
 """
 NeMo Guardrails service layer containing all guardrails business logic.
 Separated from the web layer for better testability and maintainability.
+
+Refactored to use centralized utilities for SSE formatting and message conversion.
 """
 
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -13,12 +16,21 @@ from fastapi import HTTPException
 from nemoguardrails import LLMRails, RailsConfig
 
 from config import VLLM_BASE_URL
+from utils.message_converter import MessageConverter
+from utils.sse import SSEFormatter, generate_response_id
 
 logger = logging.getLogger("nemo_service")
 
 
 class NemoService:
-    """Service class handling all NeMo Guardrails business logic."""
+    """
+    Service class handling all NeMo Guardrails business logic.
+
+    Responsibilities:
+    - Initialize and manage NeMo Guardrails configuration
+    - Process chat completions through guardrails
+    - Stream responses with SSE formatting
+    """
 
     def __init__(self, agent_name: str = "math_assistant"):
         self.agent_name = agent_name
@@ -30,25 +42,32 @@ class NemoService:
     def _get_default_config_path(self, agent_name: str) -> str:
         """Get the default config path relative to the backend directory."""
         current_dir = Path(__file__).parent.parent
-        config_dir = current_dir / "guardrails_config" / f"{agent_name}"
+        config_dir = current_dir / "guardrails_config" / agent_name
 
         if not config_dir.exists():
+            available_agents = self._list_available_agents(current_dir)
             raise FileNotFoundError(
                 f"Configuration directory not found: {config_dir}. "
-                f"Available agents: {[d.name for d in (current_dir / 'guardrails_config').iterdir() if d.is_dir()]}"
+                f"Available agents: {available_agents}"
             )
 
         return str(config_dir)
 
+    @staticmethod
+    def _list_available_agents(backend_dir: Path) -> list[str]:
+        """List available agent configurations."""
+        config_root = backend_dir / "guardrails_config"
+        if config_root.exists():
+            return [d.name for d in config_root.iterdir() if d.is_dir()]
+        return []
+
     async def initialize(self) -> bool:
+        """Initialize the NeMo Guardrails instance."""
         if self._is_initialized:
             return True
 
-        logger.info(
-            "Initializing NeMo Guardrails with config from %s", self.config_path
-        )
+        logger.info("Initializing NeMo Guardrails with config from %s", self.config_path)
 
-        # Read the actual YAML config file
         config_file = Path(self.config_path) / "config.yml"
         colang_file = Path(self.config_path) / "config.co"
 
@@ -56,19 +75,17 @@ class NemoService:
         colang_content = colang_file.read_text(encoding="utf-8")
 
         # Replace hardcoded localhost URL with environment variable
-        # This allows the config to work in both Docker and local development
         yaml_content = yaml_content.replace(
             "http://localhost:8000/v1", f"{self.base_url}/v1"
         )
 
-        # Create rails configuration from YAML and Colang content
         rails_config = RailsConfig.from_content(
-            colang_content=colang_content, yaml_content=yaml_content
+            colang_content=colang_content,
+            yaml_content=yaml_content,
         )
 
         logger.info("Rails config created programmatically")
 
-        # Initialize the LLM Rails
         self.rails = LLMRails(rails_config)
         logger.info("LLM Rails initialized successfully")
 
@@ -81,34 +98,35 @@ class NemoService:
         model: str = "llama3",
         **kwargs,
     ) -> dict:
-        try:
-            user_message = self._extract_user_message(messages)
+        """
+        Process a chat completion through guardrails.
 
-            logger.info(
-                "Processing message through guardrails: %s...", user_message[:100]
-            )
+        Args:
+            messages: List of messages with 'role' and 'content' keys
+            model: Model name for the response
+            **kwargs: Additional parameters (unused)
+
+        Returns:
+            OpenAI-style chat completion response
+        """
+        try:
+            user_message = MessageConverter.extract_last_user_message(messages)
+            logger.info("Processing message through guardrails: %s...", user_message[:100])
 
             result = await self.rails.generate_async(user_message)
 
-            # Format response to match OpenAI-style response
-            response = {
-                "id": f"chatcmpl-local-{hash(user_message)}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": result},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": self._calculate_usage(user_message, result),
-            }
+            response = self._build_completion_response(
+                user_message=user_message,
+                result=result,
+                model=model,
+            )
 
             logger.info("Generated response: %s...", result[:100] if result else "None")
             return response
 
+        except ValueError as e:
+            logger.error("Invalid message format: %s", e)
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             logger.error("Error in chat completion: %s", e)
             raise HTTPException(
@@ -121,137 +139,171 @@ class NemoService:
         model: str = "llama3",
         **kwargs,
     ) -> AsyncIterator[str]:
-        # Create response ID and timestamp upfront
-        response_id = f"chatcmpl-local-{int(time.time())}"
+        """
+        Stream a chat completion through guardrails.
+
+        Args:
+            messages: List of messages with 'role' and 'content' keys
+            model: Model name for the response
+            **kwargs: Additional parameters (unused)
+
+        Yields:
+            SSE-formatted response chunks
+        """
+        response_id = generate_response_id("chatcmpl-local")
         created_time = int(time.time())
 
         if not self._is_initialized:
-            # Yield initialization error in SSE format
-            error_data = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created_time,
-                "model": model,
-                "error": {
-                    "message": "NeMo Guardrails not initialized",
-                    "type": "initialization_error",
-                },
-            }
-            yield f"data: {self._json_dumps(error_data)}\n\n"
-            yield "data: [DONE]\n\n"
+            yield self._format_error_chunk(
+                response_id=response_id,
+                model=model,
+                created=created_time,
+                message="NeMo Guardrails not initialized",
+                error_type="initialization_error",
+            )
+            yield SSEFormatter.format_openai_done()
             return
 
         try:
-            # Yield initial processing chunk
-            processing_chunk = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created_time,
-                "model": model,
-                "choices": [
-                    {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
-                ],
-            }
-            yield f"data: {self._json_dumps(processing_chunk)}\n\n"
-
-            # Extract user message
-            user_message = self._extract_user_message(messages)
-
-            logger.info(
-                "Processing message through guardrails: %s...", user_message[:100]
+            # Initial processing chunk
+            yield SSEFormatter.format_chat_completion_chunk(
+                response_id=response_id,
+                model=model,
+                content=None,
+                created=created_time,
             )
 
-            # Generate response through NeMo Guardrails
+            user_message = MessageConverter.extract_last_user_message(messages)
+            logger.info("Processing message through guardrails: %s...", user_message[:100])
+
             result = await self.rails.generate_async(user_message)
 
-            # Split content into chunks for more realistic streaming
+            # Stream result in chunks for realistic streaming
             if result:
-                words = result.split()
-                chunk_size = max(1, len(words) // 10)  # Split into ~10 chunks
+                for chunk_content in self._split_into_chunks(result):
+                    yield SSEFormatter.format_chat_completion_chunk(
+                        response_id=response_id,
+                        model=model,
+                        content=chunk_content,
+                        created=created_time,
+                    )
 
-                for i in range(0, len(words), chunk_size):
-                    chunk_words = words[i : i + chunk_size]
-                    chunk_content = " ".join(chunk_words)
+            # Final chunk with usage
+            yield self._format_final_chunk(
+                response_id=response_id,
+                model=model,
+                created=created_time,
+                user_message=user_message,
+                result=result,
+            )
 
-                    # Add space before chunk if not first chunk
-                    if i > 0:
-                        chunk_content = " " + chunk_content
-
-                    chunk_data = {
-                        "id": response_id,
-                        "object": "chat.completion.chunk",
-                        "created": created_time,
-                        "model": model,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"content": chunk_content},
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                    yield f"data: {self._json_dumps(chunk_data)}\n\n"
-
-            # Final chunk to indicate completion
-            final_chunk = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created_time,
-                "model": model,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                "usage": self._calculate_usage(user_message, result),
-            }
-
-            yield f"data: {self._json_dumps(final_chunk)}\n\n"
-            yield "data: [DONE]\n\n"
-
+            yield SSEFormatter.format_openai_done()
             logger.info("Generated response: %s...", result[:100] if result else "None")
 
         except HTTPException:
             raise
         except Exception as e:
             logger.error("Error in streaming chat completion: %s", e)
-            # Yield error in SSE format
-            error_data = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created_time,
-                "model": model,
-                "error": {"message": str(e), "type": "internal_error"},
-            }
-            yield f"data: {self._json_dumps(error_data)}\n\n"
-            yield "data: [DONE]\n\n"
+            yield self._format_error_chunk(
+                response_id=response_id,
+                model=model,
+                created=created_time,
+                message=str(e),
+                error_type="internal_error",
+            )
+            yield SSEFormatter.format_openai_done()
 
-    def _extract_user_message(self, messages: list[dict[str, str]]) -> str:
-        """Extract the user message from the messages list."""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                if user_message:
-                    return user_message
-
-        raise HTTPException(status_code=400, detail="No user message found in messages")
-
-    def _calculate_usage(self, user_message: str, result: Optional[str]) -> dict:
-        """Calculate token usage for the response."""
+    def _build_completion_response(
+        self,
+        user_message: str,
+        result: str,
+        model: str,
+    ) -> dict:
+        """Build an OpenAI-style chat completion response."""
         return {
-            "prompt_tokens": len(user_message.split()),
-            "completion_tokens": len(result.split()) if result else 0,
-            "total_tokens": len(user_message.split())
-            + (len(result.split()) if result else 0),
+            "id": f"chatcmpl-local-{hash(user_message)}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": result},
+                "finish_reason": "stop",
+            }],
+            "usage": self._calculate_usage(user_message, result),
         }
 
-    def _json_dumps(self, data: dict) -> str:
-        """Helper method for JSON serialization."""
-        import json
+    @staticmethod
+    def _calculate_usage(user_message: str, result: Optional[str]) -> dict:
+        """Calculate approximate token usage for the response."""
+        prompt_tokens = len(user_message.split())
+        completion_tokens = len(result.split()) if result else 0
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
 
-        return json.dumps(data)
+    @staticmethod
+    def _split_into_chunks(text: str, num_chunks: int = 10) -> list[str]:
+        """Split text into chunks for realistic streaming."""
+        words = text.split()
+        chunk_size = max(1, len(words) // num_chunks)
+        chunks = []
+
+        for i in range(0, len(words), chunk_size):
+            chunk_words = words[i:i + chunk_size]
+            chunk_content = " ".join(chunk_words)
+            # Add leading space for non-first chunks
+            if i > 0:
+                chunk_content = " " + chunk_content
+            chunks.append(chunk_content)
+
+        return chunks
+
+    def _format_error_chunk(
+        self,
+        response_id: str,
+        model: str,
+        created: int,
+        message: str,
+        error_type: str,
+    ) -> str:
+        """Format an error as an SSE chunk."""
+        error_data = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "error": {"message": message, "type": error_type},
+        }
+        return f"data: {json.dumps(error_data)}\n\n"
+
+    def _format_final_chunk(
+        self,
+        response_id: str,
+        model: str,
+        created: int,
+        user_message: str,
+        result: Optional[str],
+    ) -> str:
+        """Format the final chunk with finish_reason and usage."""
+        final_data = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": self._calculate_usage(user_message, result),
+        }
+        return f"data: {json.dumps(final_data)}\n\n"
 
     def is_available(self) -> bool:
         """Check if NeMo Guardrails is available and initialized."""
         return self._is_initialized and self.rails is not None
 
     async def health_check(self) -> dict:
+        """Perform a health check on the NeMo Guardrails instance."""
         try:
             if not self.is_available():
                 return {
@@ -259,16 +311,13 @@ class NemoService:
                     "message": "NeMo Guardrails not initialized",
                 }
 
-            # Try a simple test message
             test_messages = [{"role": "user", "content": "Hello"}]
             response = await self.chat_completion(messages=test_messages)
 
             return {
                 "status": "healthy",
                 "message": "NeMo Guardrails is working correctly",
-                "test_response_length": len(
-                    response["choices"][0]["message"]["content"]
-                ),
+                "test_response_length": len(response["choices"][0]["message"]["content"]),
             }
 
         except Exception as e:
@@ -278,7 +327,7 @@ class NemoService:
             }
 
 
-# Global instance for use throughout the application
+# Global instance management
 _nemo_service_instance: Optional[NemoService] = None
 
 
@@ -287,12 +336,12 @@ async def get_nemo_service(agent_name: str = "math_assistant") -> NemoService:
     Get or create the global NemoService instance.
 
     Args:
-        agent_name: Name of the agent configuration to use (math_assistant, bank_assistant, aviation_assistant)
+        agent_name: Name of the agent configuration to use
 
     Returns:
-        NemoService: The initialized service instance
+        Initialized NemoService instance
     """
-    global _nemo_service_instance  # noqa: PLW0603
+    global _nemo_service_instance
 
     if (
         _nemo_service_instance is None
@@ -304,17 +353,9 @@ async def get_nemo_service(agent_name: str = "math_assistant") -> NemoService:
     return _nemo_service_instance
 
 
-# Legacy function name for backward compatibility
+# Backward compatibility alias
 async def get_local_nemo_instance(agent_name: str = "math_assistant") -> NemoService:
-    """
-    Legacy function name for backward compatibility.
-
-    Args:
-        agent_name: Name of the agent configuration to use
-
-    Returns:
-        NemoService: The initialized service instance
-    """
+    """Legacy function name for backward compatibility."""
     return await get_nemo_service(agent_name)
 
 
@@ -329,13 +370,10 @@ async def test_nemo_service(agent_name: str = "math_assistant"):
             logger.error("NeMo Guardrails service not available")
             return False
 
-        # Test a simple message
         test_messages = [{"role": "user", "content": "Hello, this is a test message."}]
-
         response = await nemo.chat_completion(messages=test_messages)
         logger.info("Test response: %s", response)
 
-        # Test health check
         health = await nemo.health_check()
         logger.info("Health check: %s", health)
 
@@ -348,6 +386,5 @@ async def test_nemo_service(agent_name: str = "math_assistant"):
 
 if __name__ == "__main__":
     import asyncio
-
     logging.basicConfig(level=logging.INFO)
     asyncio.run(test_nemo_service())

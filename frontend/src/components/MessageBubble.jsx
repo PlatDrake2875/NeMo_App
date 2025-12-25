@@ -1,9 +1,12 @@
 import * as React from "react";
+import { useState } from "react";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { cn } from "../lib/utils";
 import { Bot, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MessageActions } from "./MessageActions";
+import { EditMessageModal } from "./EditMessageModal";
 
 /**
  * Format timestamp for display
@@ -38,25 +41,63 @@ function formatTime(date) {
  * @param {Date} props.timestamp - Message timestamp
  * @param {boolean} props.isGrouped - Whether message is grouped with previous
  * @param {string} props.className - Additional CSS classes
+ * @param {string} props.messageId - Unique message ID
+ * @param {function} props.onEdit - Handler for editing user messages
+ * @param {function} props.onDelete - Handler for deleting messages
+ * @param {function} props.onRegenerate - Handler for regenerating assistant messages
+ * @param {boolean} props.showActions - Whether to show action buttons
+ * @param {boolean} props.isSubmitting - Whether a submission is in progress
  */
 export function MessageBubble({
   role,
   content,
   timestamp,
   isGrouped = false,
-  className
+  className,
+  messageId,
+  onEdit,
+  onDelete,
+  onRegenerate,
+  showActions = true,
+  isSubmitting = false
 }) {
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const isUser = role === "user";
   const messageTime = timestamp ? new Date(timestamp) : new Date();
 
+  // Handle edit save - edits the message and triggers regeneration
+  const handleEditSave = async (newContent) => {
+    if (onEdit && messageId) {
+      await onEdit(messageId, newContent);
+    }
+  };
+
+  // Handle delete
+  const handleDelete = () => {
+    if (onDelete && messageId) {
+      onDelete(messageId);
+    }
+  };
+
+  // Handle regenerate
+  const handleRegenerate = () => {
+    if (onRegenerate && messageId) {
+      onRegenerate(messageId);
+    }
+  };
+
   return (
+    <>
     <div
       className={cn(
-        "group flex gap-3 px-4 py-2 hover:bg-accent/50 transition-colors",
+        "group relative flex gap-3 px-4 py-2 hover:bg-accent/50 transition-colors",
         isGrouped && "mt-0.5",
         !isGrouped && "mt-4",
         className
       )}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Avatar - only show if not grouped */}
       <div className="flex-shrink-0">
@@ -117,6 +158,31 @@ export function MessageBubble({
           </span>
         </div>
       )}
+
+      {/* Message Actions - appears on hover */}
+      {showActions && isHovered && !isSubmitting && (
+        <div className="absolute top-0 right-4 -translate-y-1/2 z-10">
+          <MessageActions
+            role={role}
+            content={content}
+            onEdit={isUser && onEdit ? () => setIsEditModalOpen(true) : undefined}
+            onDelete={onDelete ? handleDelete : undefined}
+            onRegenerate={!isUser && onRegenerate ? handleRegenerate : undefined}
+            disabled={isSubmitting}
+          />
+        </div>
+      )}
     </div>
+
+    {/* Edit Message Modal */}
+    {isUser && onEdit && (
+      <EditMessageModal
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+        originalContent={content}
+        onSave={handleEditSave}
+      />
+    )}
+    </>
   );
 }

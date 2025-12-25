@@ -113,13 +113,14 @@ services:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # Required for gated models
       - HF_HOME=/root/.cache/huggingface  # Explicit cache location
     command:
-      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
-      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
+      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
+      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
       - --host=0.0.0.0
       - --port=8000
       - --trust-remote-code
-      - --max-model-len=36976
-      - --max-num-seqs=64
+      - --max-model-len=8192
+      - --max-num-seqs=32
+      - --gpu-memory-utilization=0.9
       - --download-dir=/root/.cache/huggingface  # Use shared cache
     deploy:
       resources:

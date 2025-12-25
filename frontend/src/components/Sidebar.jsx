@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import {
   MessageSquarePlus,
   FileText,
+  Shield,
   Pencil,
   Trash2,
   Check,
@@ -43,6 +44,7 @@ export function Sidebar({
   isUploadingPdf,
   pdfUploadStatus,
   onViewDocuments,
+  onViewGuardrails,
 }) {
   const sessionIds = isInitialized ? Object.keys(sessions) : [];
   const [automationJson, setAutomationJson] = useState(
@@ -227,6 +229,14 @@ export function Sidebar({
         >
           <FileText className="h-4 w-4" />
           View Documents
+        </Button>
+        <Button
+          onClick={onViewGuardrails}
+          className="w-full justify-start gap-2"
+          variant="outline"
+        >
+          <Shield className="h-4 w-4" />
+          Guardrails
         </Button>
       </div>
 
@@ -578,6 +588,7 @@ Sidebar.propTypes = {
   isUploadingPdf: PropTypes.bool,
   pdfUploadStatus: PropTypes.object,
   onViewDocuments: PropTypes.func,
+  onViewGuardrails: PropTypes.func,
 };
 
 export default Sidebar;

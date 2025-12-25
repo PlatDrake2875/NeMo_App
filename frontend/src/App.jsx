@@ -4,7 +4,8 @@ import "./index.css";
 
 import { AgentSelector } from "./components/AgentSelector";
 import { ChatInterface } from "./components/ChatInterface";
-import { DocumentViewer } from "./components/DocumentViewer"; // Import the new component
+import { DocumentManager } from "./components/DocumentManager";
+import { GuardrailsEditor } from "./components/guardrails";
 
 // Import components
 import { Sidebar } from "./components/Sidebar";
@@ -12,6 +13,8 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { useChatSessions } from "./hooks/useChatSessions";
 // Import custom hooks
 import { useTheme } from "./hooks/useTheme";
+// Import utilities
+import { formatSessionName } from "./utils/session";
 
 // Define the backend API URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -33,6 +36,12 @@ function App() {
 		handleChatSubmit: originalHandleChatSubmit,
 		handleAutomateConversation,
 		stopGeneration,
+		// Message-level handlers
+		handleEditMessage,
+		handleDeleteMessage,
+		handleRegenerateMessage,
+		// Import/Export handlers
+		handleImportConversation,
 	} = useChatSessions(API_BASE_URL);
 
 	const [availableModels, setAvailableModels] = useState([]);
@@ -47,7 +56,7 @@ function App() {
 	const [sessionAgents, setSessionAgents] = useState({}); // Maps sessionId to agent
 
 	// --- State for View Management ---
-	const [currentView, setCurrentView] = useState("chat"); // 'chat' or 'documents'
+	const [currentView, setCurrentView] = useState("chat"); // 'chat', 'documents', or 'guardrails'
 
 	const fetchModels = useCallback(async () => {
 		setModelsLoading(true);
@@ -122,6 +131,32 @@ function App() {
 		[selectedModel, originalHandleChatSubmit, sessionAgents, activeSessionId],
 	);
 
+	// --- Message Action Handlers (wrap with model and agent) ---
+
+	const handleEditMessageWithModel = useCallback(
+		async (messageId, newContent) => {
+			if (!selectedModel) {
+				console.error("No model selected. Cannot edit message.");
+				return;
+			}
+			const selectedAgent = sessionAgents[activeSessionId] || null;
+			await handleEditMessage(messageId, newContent, selectedModel, selectedAgent);
+		},
+		[selectedModel, sessionAgents, activeSessionId, handleEditMessage],
+	);
+
+	const handleRegenerateMessageWithModel = useCallback(
+		async (messageId) => {
+			if (!selectedModel) {
+				console.error("No model selected. Cannot regenerate message.");
+				return;
+			}
+			const selectedAgent = sessionAgents[activeSessionId] || null;
+			await handleRegenerateMessage(messageId, selectedModel, selectedAgent);
+		},
+		[selectedModel, sessionAgents, activeSessionId, handleRegenerateMessage],
+	);
+
 	// Custom new chat handler that shows agent selector first
 	const handleNewChatWithAgent = useCallback(() => {
 		// Create a new chat session first
@@ -176,13 +211,6 @@ function App() {
 		});
 	}, [isInitialized, sessions]);
 
-	const formatSessionIdFallback = useCallback((sessionId) => {
-		if (!sessionId) return "Chat";
-		return sessionId
-			.replace(/-/g, " ")
-			.replace(/^./, (str) => str.toUpperCase());
-	}, []);
-
 	const activeSessionName = useMemo(() => {
 		if (
 			!isInitialized ||
@@ -192,37 +220,16 @@ function App() {
 		) {
 			return "Chat";
 		}
-		return (
-			sessions[activeSessionId].name || formatSessionIdFallback(activeSessionId)
-		);
-	}, [activeSessionId, sessions, isInitialized, formatSessionIdFallback]);
+		return sessions[activeSessionId].name || formatSessionName(activeSessionId);
+	}, [activeSessionId, sessions, isInitialized]);
 
-	const downloadActiveChatHistory = useCallback(() => {
-		const currentSession =
-			sessions && activeSessionId ? sessions[activeSessionId] : null;
-		if (
-			!currentSession ||
-			!Array.isArray(currentSession.history) ||
-			currentSession.history.length === 0
-		) {
-			alert("No history to download for the current chat.");
-			return;
+	// Get the active session object for export functions
+	const activeSession = useMemo(() => {
+		if (!isInitialized || !activeSessionId || !sessions) {
+			return null;
 		}
-		const historyToDownload = currentSession.history;
-		const json = JSON.stringify(historyToDownload, null, 2);
-		const blob = new Blob([json], { type: "application/json" });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement("a");
-		link.href = url;
-		const downloadName = currentSession.name
-			? currentSession.name.replace(/[^a-z0-9]/gi, "_").toLowerCase()
-			: activeSessionId;
-		link.download = `${downloadName}_history.json`;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
-	}, [activeSessionId, sessions]);
+		return sessions[activeSessionId] || null;
+	}, [activeSessionId, sessions, isInitialized]);
 
 	const handlePdfUpload = useCallback(async (file) => {
 		if (!file) {
@@ -273,6 +280,15 @@ function App() {
 		setCurrentView("documents");
 	}, []);
 
+	const handleViewGuardrails = useCallback(() => {
+		setShowAgentSelector(false); // Close agent selector to prevent overlay blocking
+		setCurrentView("guardrails");
+	}, []);
+
+	const handleBackToChat = useCallback(() => {
+		setCurrentView("chat");
+	}, []);
+
 	// Wrapper for session selection that also switches to chat view
 	const handleSelectSessionAndSwitchView = useCallback(
 		(sessionId) => {
@@ -301,8 +317,9 @@ function App() {
 					onUploadPdf={handlePdfUpload}
 					isUploadingPdf={isUploadingPdf}
 					pdfUploadStatus={pdfUploadStatus}
-					// View switching prop
+					// View switching props
 					onViewDocuments={handleViewDocuments}
+					onViewGuardrails={handleViewGuardrails}
 				/>
 				{/* Main content area */}
 				<div className="flex-1 flex flex-col overflow-hidden">
@@ -311,10 +328,11 @@ function App() {
 							key={`${activeSessionId || "no-session"}-${activeChatHistory.length}`}
 							activeSessionId={activeSessionId}
 							activeSessionName={activeSessionName}
+							activeSession={activeSession}
 							chatHistory={activeChatHistory}
 							onSubmit={handleChatSubmitWithModel}
 							onClearHistory={clearActiveChatHistory}
-							onDownloadHistory={downloadActiveChatHistory}
+							onImportConversation={handleImportConversation}
 							isSubmitting={isChatSubmitting}
 							onStopGeneration={stopGeneration}
 							isDarkMode={isDarkMode}
@@ -329,9 +347,15 @@ function App() {
 							showAgentSelector={showAgentSelector}
 							sessionAgents={sessionAgents}
 							onRefreshModels={fetchModels}
+							// Message action handlers
+							onEditMessage={handleEditMessageWithModel}
+							onDeleteMessage={handleDeleteMessage}
+							onRegenerateMessage={handleRegenerateMessageWithModel}
 						/>
+					) : currentView === "documents" ? (
+						<DocumentManager onBack={handleBackToChat} />
 					) : (
-						<DocumentViewer />
+						<GuardrailsEditor onBack={handleBackToChat} />
 					)}
 				</div>
 
