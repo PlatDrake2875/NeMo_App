@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # --- Generic Message Model (useful for conversation histories) ---
@@ -13,10 +13,11 @@ class Message(BaseModel):
     )
     content: str = Field(..., description="Content of the message")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"role": "user", "content": "Hello, how are you?"}
         }
+    )
 
 
 # --- Pydantic Models (Existing) ---
@@ -64,13 +65,14 @@ class ModelValidationRequest(BaseModel):
     )
     token: Optional[str] = Field(None, description="HuggingFace API token for gated models")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "model_id": "meta-llama/Llama-3.1-8B-Instruct",
                 "token": "hf_..."
             }
         }
+    )
 
 
 class ModelMetadataResponse(BaseModel):
@@ -84,8 +86,8 @@ class ModelMetadataResponse(BaseModel):
     pipeline_tag: Optional[str] = Field(None, description="Model pipeline tag")
     tags: list[str] = Field(default_factory=list, description="Model tags")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "model_id": "meta-llama/Llama-3.1-8B-Instruct",
                 "is_gated": True,
@@ -96,6 +98,7 @@ class ModelMetadataResponse(BaseModel):
                 "tags": ["llama", "instruct", "chat"]
             }
         }
+    )
 
 
 class ModelDownloadRequest(BaseModel):
@@ -111,14 +114,15 @@ class ModelDownloadRequest(BaseModel):
         None, description="Custom name for the model (defaults to model_id)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "model_id": "meta-llama/Llama-3.1-8B-Instruct",
                 "token": "hf_...",
                 "custom_name": "llama-3.1-8b"
             }
         }
+    )
 
 
 class ModelLoadRequest(BaseModel):
@@ -129,13 +133,14 @@ class ModelLoadRequest(BaseModel):
         None, description="Name to serve the model as (defaults to model_id)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "model_id": "meta-llama/Llama-3.1-8B-Instruct",
                 "served_model_name": "llama-3.1-8b"
             }
         }
+    )
 
 
 class LegacyChatRequest(BaseModel):
@@ -203,9 +208,7 @@ class DocumentChunk(BaseModel):
         default_factory=dict
     )  # Ensure default is a factory
 
-    class Config:
-        # Correct Pydantic V2 config key
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DocumentListResponse(BaseModel):
@@ -230,8 +233,8 @@ class AutomateRequest(BaseModel):
         description="Additional configuration parameters for automation.",
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "conversation_history": [
                     {
@@ -247,11 +250,12 @@ class AutomateRequest(BaseModel):
                         "content": "Correct. Also, remember to schedule the follow-up meeting.",
                     },
                 ],
-                "model": "llama3:latest",  # Example model
+                "model": "llama3:latest",
                 "automation_task": "generate_meeting_summary_and_actions",
                 "config_params": {"max_summary_length": 200},
             }
         }
+    )
 
 
 class AutomateResponse(BaseModel):
@@ -268,8 +272,8 @@ class AutomateResponse(BaseModel):
         None, description="Details if an error occurred."
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "message": "Conversation automated successfully.",
@@ -279,6 +283,7 @@ class AutomateResponse(BaseModel):
                 },
             }
         }
+    )
 
 
 # --- Chat Models ---
@@ -288,10 +293,11 @@ class HistoryMessage(BaseModel):
     sender: str = Field(..., description="Sender of the message ('user' or 'bot')")
     text: str = Field(..., description="Content of the message")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"sender": "user", "text": "Hello, how are you?"}
         }
+    )
 
 
 class ChatRequest(BaseModel):
@@ -309,8 +315,8 @@ class ChatRequest(BaseModel):
         None, description="Whether to use RAG for this request"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "query": "What is the weather like today?",
                 "model": "gemma3:4b-it-q4_K_M",
@@ -322,6 +328,7 @@ class ChatRequest(BaseModel):
                 "use_rag": True,
             }
         }
+    )
 
 
 class ChatStreamChunk(BaseModel):
@@ -333,8 +340,9 @@ class ChatStreamChunk(BaseModel):
     )
     status: Optional[str] = Field(None, description="Status information")
 
-    class Config:
-        json_schema_extra = {"example": {"token": "Hello, I'm doing well!"}}
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"token": "Hello, I'm doing well!"}}
+    )
 
 
 # --- Dataset Registry Schemas ---
@@ -355,8 +363,8 @@ class EmbedderConfig(BaseModel):
         description="Additional kwargs for model initialization"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "model_name": "all-MiniLM-L6-v2",
                 "model_type": "huggingface",
@@ -364,6 +372,7 @@ class EmbedderConfig(BaseModel):
                 "model_kwargs": {}
             }
         }
+    )
 
 
 class DatasetCreateRequest(BaseModel):
@@ -373,8 +382,8 @@ class DatasetCreateRequest(BaseModel):
     description: Optional[str] = Field(None, description="Description of the dataset")
     embedder_config: EmbedderConfig = Field(..., description="Embedder configuration for this dataset")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "aviation_docs_minilm",
                 "description": "Aviation documentation with MiniLM embeddings",
@@ -385,6 +394,7 @@ class DatasetCreateRequest(BaseModel):
                 }
             }
         }
+    )
 
 
 class DatasetMetadata(BaseModel):
@@ -395,8 +405,8 @@ class DatasetMetadata(BaseModel):
     document_count: int = 0
     chunk_count: int = 0
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "created_at": "2025-11-18T10:00:00Z",
                 "updated_at": "2025-11-18T15:30:00Z",
@@ -404,6 +414,7 @@ class DatasetMetadata(BaseModel):
                 "chunk_count": 1250
             }
         }
+    )
 
 
 class DatasetInfo(BaseModel):
@@ -416,8 +427,8 @@ class DatasetInfo(BaseModel):
     embedder_config: EmbedderConfig
     metadata: DatasetMetadata
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "name": "aviation_docs_minilm",
@@ -436,6 +447,7 @@ class DatasetInfo(BaseModel):
                 }
             }
         }
+    )
 
 
 class DatasetListResponse(BaseModel):
@@ -444,8 +456,8 @@ class DatasetListResponse(BaseModel):
     count: int
     datasets: list[DatasetInfo]
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "count": 2,
                 "datasets": [
@@ -469,6 +481,7 @@ class DatasetListResponse(BaseModel):
                 ]
             }
         }
+    )
 
 
 # --- Chunking Configuration Schemas ---
@@ -479,14 +492,15 @@ class ChunkingMethodInfo(BaseModel):
     description: str = Field(..., description="Description of how this method works")
     default_params: Dict[str, Any] = Field(..., description="Default parameters for this method")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Recursive Character Splitter",
                 "description": "Splits text recursively by trying different separators",
                 "default_params": {"chunk_size": 1000, "chunk_overlap": 200}
             }
         }
+    )
 
 
 class ChunkingMethodsResponse(BaseModel):
@@ -494,8 +508,8 @@ class ChunkingMethodsResponse(BaseModel):
 
     methods: Dict[str, ChunkingMethodInfo]
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "methods": {
                     "recursive": {
@@ -506,6 +520,7 @@ class ChunkingMethodsResponse(BaseModel):
                 }
             }
         }
+    )
 
 
 class RechunkRequest(BaseModel):
@@ -520,8 +535,8 @@ class RechunkRequest(BaseModel):
     chunk_size: int = Field(default=1000, description="Chunk size in characters")
     chunk_overlap: int = Field(default=200, description="Overlap between chunks")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "dataset_name": "test_minilm",
                 "original_filename": "document.pdf",
@@ -530,6 +545,7 @@ class RechunkRequest(BaseModel):
                 "chunk_overlap": 200
             }
         }
+    )
 
 
 class RechunkResponse(BaseModel):
@@ -540,8 +556,8 @@ class RechunkResponse(BaseModel):
     chunks_created: int
     chunking_method: str
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "message": "Document re-chunked successfully",
                 "original_filename": "document.pdf",
@@ -549,6 +565,7 @@ class RechunkResponse(BaseModel):
                 "chunking_method": "semantic"
             }
         }
+    )
 
 
 class DocumentSource(BaseModel):
@@ -559,8 +576,8 @@ class DocumentSource(BaseModel):
     chunking_method: Optional[str] = None
     chunk_size: Optional[int] = None
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "original_filename": "manual.pdf",
                 "chunk_count": 125,
@@ -568,6 +585,7 @@ class DocumentSource(BaseModel):
                 "chunk_size": 1000
             }
         }
+    )
 
 
 class DocumentSourcesResponse(BaseModel):
@@ -576,8 +594,8 @@ class DocumentSourcesResponse(BaseModel):
     count: int
     documents: List[DocumentSource]
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "count": 2,
                 "documents": [
@@ -590,6 +608,7 @@ class DocumentSourcesResponse(BaseModel):
                 ]
             }
         }
+    )
 
 
 # =============================================================================
@@ -635,9 +654,9 @@ class RawFileInfo(BaseModel):
     content_hash: str
     metadata: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "filename": "research_paper.pdf",
@@ -649,6 +668,7 @@ class RawFileInfo(BaseModel):
                 "metadata": {"pages": 12}
             }
         }
+    )
 
 
 class RawDatasetCreate(BaseModel):
@@ -657,14 +677,15 @@ class RawDatasetCreate(BaseModel):
     description: Optional[str] = None
     source_type: SourceTypeEnum = SourceTypeEnum.UPLOAD
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "research-papers",
                 "description": "Collection of ML research papers",
                 "source_type": "upload"
             }
         }
+    )
 
 
 class RawDatasetInfo(BaseModel):
@@ -680,9 +701,9 @@ class RawDatasetInfo(BaseModel):
     total_size_bytes: int
     files: List[RawFileInfo] = []
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "name": "research-papers",
@@ -696,6 +717,7 @@ class RawDatasetInfo(BaseModel):
                 "files": []
             }
         }
+    )
 
 
 class RawDatasetListResponse(BaseModel):
@@ -713,8 +735,8 @@ class CleaningConfig(BaseModel):
     normalize_whitespace: bool = True
     custom_patterns: List[str] = Field(default_factory=list)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "enabled": True,
                 "remove_headers_footers": True,
@@ -723,6 +745,7 @@ class CleaningConfig(BaseModel):
                 "custom_patterns": []
             }
         }
+    )
 
 
 class LLMMetadataConfig(BaseModel):
@@ -736,8 +759,8 @@ class LLMMetadataConfig(BaseModel):
     max_summary_length: int = Field(default=200, ge=50, le=1000)
     max_keywords: int = Field(default=10, ge=1, le=50)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "enabled": True,
                 "model": "meta-llama/Llama-3.2-3B-Instruct",
@@ -749,6 +772,7 @@ class LLMMetadataConfig(BaseModel):
                 "max_keywords": 10
             }
         }
+    )
 
 
 class ChunkingConfigSchema(BaseModel):
@@ -768,8 +792,8 @@ class ChunkingConfigSchema(BaseModel):
             raise ValueError("chunk_overlap must be less than chunk_size")
         return result
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "method": "recursive",
                 "chunk_size": 1000,
@@ -778,6 +802,7 @@ class ChunkingConfigSchema(BaseModel):
                 "breakpoint_threshold_type": "percentile"
             }
         }
+    )
 
 
 class PreprocessingConfig(BaseModel):
@@ -786,14 +811,15 @@ class PreprocessingConfig(BaseModel):
     llm_metadata: LLMMetadataConfig = Field(default_factory=LLMMetadataConfig)
     chunking: ChunkingConfigSchema = Field(default_factory=ChunkingConfigSchema)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "cleaning": {"enabled": False},
                 "llm_metadata": {"enabled": True, "extract_summary": True},
                 "chunking": {"method": "recursive", "chunk_size": 1000}
             }
         }
+    )
 
 
 # --- Processed Dataset Schemas ---
@@ -806,8 +832,8 @@ class ProcessedDatasetCreate(BaseModel):
     preprocessing_config: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     vector_backend: str = Field(default="pgvector", pattern="^(pgvector|qdrant)$")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "research-papers-semantic-1000",
                 "description": "Research papers with semantic chunking",
@@ -822,6 +848,7 @@ class ProcessedDatasetCreate(BaseModel):
                 "vector_backend": "pgvector"
             }
         }
+    )
 
 
 class ProcessedDatasetInfo(BaseModel):
@@ -844,9 +871,9 @@ class ProcessedDatasetInfo(BaseModel):
     document_count: int
     chunk_count: int
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "name": "research-papers-semantic-1000",
@@ -867,6 +894,7 @@ class ProcessedDatasetInfo(BaseModel):
                 "chunk_count": 450
             }
         }
+    )
 
 
 class ProcessedDatasetListResponse(BaseModel):
@@ -893,8 +921,8 @@ class HFDatasetConfig(BaseModel):
     token: Optional[str] = Field(None, description="HuggingFace token for private datasets")
     max_samples: Optional[int] = Field(None, ge=1, description="Maximum number of samples to import")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "dataset_id": "microsoft/wiki_qa",
                 "subset": None,
@@ -904,6 +932,7 @@ class HFDatasetConfig(BaseModel):
                 "max_samples": 1000
             }
         }
+    )
 
 
 class HFImportAsRawRequest(BaseModel):
@@ -912,8 +941,8 @@ class HFImportAsRawRequest(BaseModel):
     raw_dataset_name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "hf_config": {
                     "dataset_id": "squad",
@@ -924,6 +953,7 @@ class HFImportAsRawRequest(BaseModel):
                 "description": "SQuAD context passages"
             }
         }
+    )
 
 
 class HFDirectProcessRequest(BaseModel):
@@ -935,8 +965,8 @@ class HFDirectProcessRequest(BaseModel):
     preprocessing_config: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     vector_backend: str = Field(default="pgvector")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "hf_config": {
                     "dataset_id": "squad",
@@ -949,6 +979,7 @@ class HFDirectProcessRequest(BaseModel):
                 "vector_backend": "pgvector"
             }
         }
+    )
 
 
 class HFDatasetMetadata(BaseModel):
@@ -960,8 +991,8 @@ class HFDatasetMetadata(BaseModel):
     features: Dict[str, str]  # column -> dtype
     available_splits: List[str]
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "dataset_id": "squad",
                 "description": "Stanford Question Answering Dataset",
@@ -971,6 +1002,7 @@ class HFDatasetMetadata(BaseModel):
                 "available_splits": ["train", "validation"]
             }
         }
+    )
 
 
 # --- LLM Extracted Metadata Schemas ---
@@ -987,9 +1019,9 @@ class ExtractedMetadataInfo(BaseModel):
     categories: Optional[List[str]]
     custom_fields: Optional[Dict[str, Any]]
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "raw_file_id": 5,
@@ -1002,6 +1034,7 @@ class ExtractedMetadataInfo(BaseModel):
                 "categories": ["Computer Science", "Artificial Intelligence"]
             }
         }
+    )
 
 
 # --- Batch Upload Response Schema ---
@@ -1010,13 +1043,14 @@ class BatchUploadFailedFile(BaseModel):
     filename: str
     error: str
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "filename": "bad_file.xyz",
                 "error": "Unsupported file type"
             }
         }
+    )
 
 
 class BatchUploadResponse(BaseModel):
@@ -1024,13 +1058,14 @@ class BatchUploadResponse(BaseModel):
     successful: List[RawFileInfo]
     failed: List[BatchUploadFailedFile]
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "successful": [],
                 "failed": [{"filename": "bad.xyz", "error": "Unsupported type"}]
             }
         }
+    )
 
 
 # --- Dataset Statistics Schemas ---
@@ -1044,8 +1079,8 @@ class DatasetStatsResponse(BaseModel):
     datasets_by_backend: Dict[str, int]
     datasets_by_chunking_method: Dict[str, int]
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total_raw_datasets": 5,
                 "total_processed_datasets": 12,
@@ -1056,3 +1091,4 @@ class DatasetStatsResponse(BaseModel):
                 "datasets_by_chunking_method": {"recursive": 6, "semantic": 4, "fixed": 2}
             }
         }
+    )
