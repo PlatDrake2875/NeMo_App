@@ -2,10 +2,8 @@
 Processed Dataset Router - API endpoints for managing processed/indexed datasets.
 """
 
-import asyncio
 import json
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -81,32 +79,19 @@ async def get_dataset_stats(
     Returns counts grouped by vector backend and chunking method.
     """
     from sqlalchemy import func
-
-    # Count raw datasets
-    raw_count = db.query(func.count(RawDataset.id)).scalar() or 0
-
-    # Count raw files
     from database_models import RawFile
+
+    raw_count = db.query(func.count(RawDataset.id)).scalar() or 0
     raw_files_count = db.query(func.count(RawFile.id)).scalar() or 0
-
-    # Total storage
     total_storage = db.query(func.sum(RawDataset.total_size_bytes)).scalar() or 0
-
-    # Count processed datasets
     processed_count = db.query(func.count(ProcessedDataset.id)).scalar() or 0
-
-    # Count in-progress
     in_progress = (
         db.query(func.count(ProcessedDataset.id))
         .filter(ProcessedDataset.processing_status == ProcessingStatus.PROCESSING.value)
         .scalar()
         or 0
     )
-
-    # Group by backend
     datasets_by_backend = processed_dataset_service.get_datasets_by_backend(db)
-
-    # Group by chunking method
     datasets_by_chunking = processed_dataset_service.get_datasets_by_chunking_method(db)
 
     return DatasetStatsResponse(
@@ -134,6 +119,25 @@ async def get_processed_dataset(
     if not dataset:
         raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
     return dataset
+
+
+@router.get("/{dataset_id}/chunks")
+async def get_chunks(
+    dataset_id: int,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(20, ge=1, le=100, description="Number of chunks per page"),
+    search: str = Query(None, description="Optional search term to filter chunks"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get chunks for a processed dataset with pagination and optional search.
+
+    Returns a list of chunks with their content and metadata.
+    """
+    try:
+        return processed_dataset_service.get_chunks(db, dataset_id, page, limit, search)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.delete("/{dataset_id}")
@@ -206,6 +210,9 @@ async def start_processing_stream(
     Start processing with Server-Sent Events for progress updates.
 
     Returns a stream of progress events.
+
+    Note: Unlike the non-streaming endpoint, this allows reprocessing of
+    completed datasets without requiring a call to /reprocess first.
     """
     dataset = processed_dataset_service.get_dataset(db, dataset_id)
     if not dataset:
@@ -228,6 +235,7 @@ async def start_processing_stream(
                     "data": json.dumps(update.get("data", {})),
                 }
         except Exception as e:
+            logger.error(f"SSE processing stream error for dataset {dataset_id}: {e}", exc_info=True)
             yield {
                 "event": "error",
                 "data": json.dumps({"error": str(e)}),
@@ -265,9 +273,10 @@ async def reprocess_dataset(
         )
         logger.info(f"Cleared vector collection for reprocessing: {dataset.collection_name}")
     except Exception as e:
-        logger.warning(f"Could not clear vectors for reprocessing: {e}")
+        # Log as ERROR since this could cause data integrity issues
+        logger.error(f"Failed to clear vectors for reprocessing {dataset.collection_name}: {e}", exc_info=True)
         vectors_cleared = False
-        clear_warning = str(e)
+        clear_warning = f"CAUTION: Could not clear existing vectors. Reprocessing may result in duplicate or stale data. Error: {e}"
 
     # Reset status
     processed_dataset_service.update_processing_status(
@@ -296,9 +305,12 @@ async def _run_processing(dataset_id: int):
     try:
         await preprocessing_pipeline_service.process_dataset(db, dataset_id)
     except Exception as e:
-        logger.error(f"Processing failed for dataset {dataset_id}: {e}")
-        processed_dataset_service.update_processing_status(
-            db, dataset_id, ProcessingStatus.FAILED, str(e)
-        )
+        logger.error(f"Processing failed for dataset {dataset_id}: {e}", exc_info=True)
+        try:
+            processed_dataset_service.update_processing_status(
+                db, dataset_id, ProcessingStatus.FAILED, str(e)
+            )
+        except Exception as status_error:
+            logger.error(f"Failed to update status for dataset {dataset_id}: {status_error}", exc_info=True)
     finally:
         db.close()

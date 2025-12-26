@@ -88,7 +88,19 @@ class RawDatasetService:
         return self._to_dataset_info(dataset, include_files=include_files)
 
     def delete_dataset(self, db: Session, dataset_id: int) -> dict:
-        """Delete a raw dataset and all its files."""
+        """
+        Delete a raw dataset and all its files.
+
+        Args:
+            db: Database session
+            dataset_id: ID of the dataset to delete
+
+        Returns:
+            Dict with deletion confirmation and file count
+
+        Raises:
+            ValueError: If dataset with given ID does not exist
+        """
         dataset = db.query(RawDataset).filter(RawDataset.id == dataset_id).first()
         if not dataset:
             raise ValueError(f"Dataset with id {dataset_id} not found")

@@ -124,10 +124,12 @@ class PreprocessingPipelineService:
                     stats["total_chunks"] += file_stats["chunks"]
 
                 except Exception as e:
-                    logger.error(f"Error processing file {raw_file.filename}: {e}")
-                    stats["errors"].append(
-                        {"filename": raw_file.filename, "error": str(e)}
-                    )
+                    logger.error(f"Error processing file {raw_file.filename}: {e}", exc_info=True)
+                    stats["errors"].append({
+                        "filename": raw_file.filename,
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    })
 
             # Update counts
             processed_dataset_service.update_counts(

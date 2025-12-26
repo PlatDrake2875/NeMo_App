@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from config import HUGGING_FACE_HUB_TOKEN
 from database_models import RawDataset, RawFile, SourceType
 from schemas import (
+    HFColumnInfo,
     HFDatasetConfig,
     HFDatasetMetadata,
     HFDirectProcessRequest,
@@ -59,9 +60,12 @@ class HuggingFaceDatasetService:
 
             # Get features as string descriptions
             features = {}
+            columns = []
             if info.features:
                 for name, feature in info.features.items():
-                    features[name] = str(type(feature).__name__)
+                    dtype = str(type(feature).__name__)
+                    features[name] = dtype
+                    columns.append(HFColumnInfo(name=name, dtype=dtype))
 
             # Get row counts per split
             num_rows = {}
@@ -75,6 +79,7 @@ class HuggingFaceDatasetService:
                 size_bytes=info.size_in_bytes,
                 num_rows=num_rows,
                 features=features,
+                columns=columns,
                 available_splits=list(num_rows.keys()),
             )
 
@@ -358,11 +363,11 @@ class HuggingFaceDatasetService:
                     "description": getattr(ds, "description", None),
                 })
 
-            return {"results": results, "error": None}
+            return {"results": results, "error": None, "search_succeeded": True}
 
         except Exception as e:
-            logger.error(f"Error searching HF datasets: {e}")
-            return {"results": [], "error": f"Search failed: {str(e)}"}
+            logger.error(f"Error searching HF datasets: {e}", exc_info=True)
+            return {"results": [], "error": f"Search failed: {str(e)}", "search_succeeded": False}
 
 
 # Factory function

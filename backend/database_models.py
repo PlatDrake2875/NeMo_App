@@ -8,6 +8,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Column,
     Enum,
     ForeignKey,
@@ -17,45 +18,30 @@ from sqlalchemy import (
     Text,
     DateTime,
     JSON,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-import enum
 
 from config import POSTGRES_CONNECTION_STRING
+from enums import SourceType, FileType, ProcessingStatus
 
 Base = declarative_base()
 
 
-# --- Enums ---
-class SourceType(str, enum.Enum):
-    """Source type for raw datasets."""
-    UPLOAD = "upload"
-    HUGGINGFACE = "huggingface"
-
-
-class FileType(str, enum.Enum):
-    """Supported file types for raw datasets."""
-    PDF = "pdf"
-    JSON = "json"
-    MD = "md"
-    TXT = "txt"
-    CSV = "csv"
-
-
-class ProcessingStatus(str, enum.Enum):
-    """Processing status for processed datasets."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+# Re-export enums for backward compatibility
+__all__ = ["SourceType", "FileType", "ProcessingStatus"]
 
 
 # --- Raw Dataset Models ---
 class RawDataset(Base):
     """Container for raw, unprocessed datasets."""
     __tablename__ = "raw_datasets"
+    __table_args__ = (
+        CheckConstraint("total_file_count >= 0", name="check_file_count_positive"),
+        CheckConstraint("total_size_bytes >= 0", name="check_size_positive"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
@@ -80,6 +66,9 @@ class RawDataset(Base):
 class RawFile(Base):
     """Individual files within a raw dataset (stored as BLOBs)."""
     __tablename__ = "raw_files"
+    __table_args__ = (
+        UniqueConstraint("raw_dataset_id", "content_hash", name="uq_file_per_dataset_hash"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     raw_dataset_id = Column(Integer, ForeignKey("raw_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -134,7 +123,7 @@ class ProcessedDataset(Base):
     #     "cleaning": {"enabled": False, "options": {}},
     #     "llm_metadata": {
     #         "enabled": True,
-    #         "model": "llama3.1-8b",
+    #         "model": "<model-name>",
     #         "extract_summary": True,
     #         "extract_keywords": True,
     #         "extract_entities": False,

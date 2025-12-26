@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # --- Generic Message Model (useful for conversation histories) ---
@@ -615,31 +615,12 @@ class DocumentSourcesResponse(BaseModel):
 # RAG BENCHMARK HUB SCHEMAS
 # =============================================================================
 
-from enum import Enum as PyEnum
+from enums import SourceType, FileType, ProcessingStatus
 
-
-# --- Enums for RAG Hub ---
-class SourceTypeEnum(str, PyEnum):
-    """Source type for raw datasets."""
-    UPLOAD = "upload"
-    HUGGINGFACE = "huggingface"
-
-
-class FileTypeEnum(str, PyEnum):
-    """Supported file types for raw datasets."""
-    PDF = "pdf"
-    JSON = "json"
-    MD = "md"
-    TXT = "txt"
-    CSV = "csv"
-
-
-class ProcessingStatusEnum(str, PyEnum):
-    """Processing status for processed datasets."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+# Aliases for backward compatibility in schemas
+SourceTypeEnum = SourceType
+FileTypeEnum = FileType
+ProcessingStatusEnum = ProcessingStatus
 
 
 # --- Raw Dataset Schemas ---
@@ -784,13 +765,12 @@ class ChunkingConfigSchema(BaseModel):
     embedder_model: Optional[str] = None
     breakpoint_threshold_type: str = Field(default="percentile")
 
-    @classmethod
-    def model_validate(cls, obj, *args, **kwargs):
-        """Validate with cross-field constraints."""
-        result = super().model_validate(obj, *args, **kwargs)
-        if result.chunk_overlap >= result.chunk_size:
+    @model_validator(mode='after')
+    def validate_overlap_less_than_size(self) -> 'ChunkingConfigSchema':
+        """Validate that chunk_overlap is less than chunk_size."""
+        if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
-        return result
+        return self
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -982,13 +962,20 @@ class HFDirectProcessRequest(BaseModel):
     )
 
 
+class HFColumnInfo(BaseModel):
+    """Information about a single column/feature in a HuggingFace dataset."""
+    name: str
+    dtype: str
+
+
 class HFDatasetMetadata(BaseModel):
     """Metadata about a HuggingFace dataset."""
     dataset_id: str
     description: Optional[str]
     size_bytes: Optional[int]
     num_rows: Dict[str, int]  # split -> count
-    features: Dict[str, str]  # column -> dtype
+    features: Dict[str, str]  # column -> dtype (kept for backward compatibility)
+    columns: List[HFColumnInfo]  # column info as list for frontend consumption
     available_splits: List[str]
 
     model_config = ConfigDict(
@@ -999,6 +986,11 @@ class HFDatasetMetadata(BaseModel):
                 "size_bytes": 35000000,
                 "num_rows": {"train": 87599, "validation": 10570},
                 "features": {"context": "string", "question": "string", "answers": "dict"},
+                "columns": [
+                    {"name": "context", "dtype": "string"},
+                    {"name": "question", "dtype": "string"},
+                    {"name": "answers", "dtype": "dict"},
+                ],
                 "available_splits": ["train", "validation"]
             }
         }

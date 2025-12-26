@@ -227,8 +227,11 @@ export function HuggingFaceImporter() {
                 setError(data.message || "Import failed");
                 setIsImporting(false);
               }
-            } catch {
-              // Skip non-JSON lines
+            } catch (parseError) {
+              // Log if it looks like JSON but failed to parse
+              if (line.slice(6).trim().startsWith('{')) {
+                console.warn('Failed to parse SSE JSON:', line, parseError);
+              }
             }
           }
         }

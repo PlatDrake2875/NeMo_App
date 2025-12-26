@@ -100,9 +100,14 @@ class FileLoaderService:
 
         if not documents:
             # If no text extracted, create a single empty document to track the file
+            logger.warning(f"No text extracted from PDF: {metadata.get('source', 'unknown')}")
             documents.append(Document(
-                page_content="[PDF content could not be extracted]",
-                metadata={**metadata, "extraction_error": True}
+                page_content="[PDF content could not be extracted - this file may need OCR processing]",
+                metadata={
+                    **metadata,
+                    "extraction_error": True,
+                    "extraction_error_reason": "No text layer found - PDF may be scanned or image-based"
+                }
             ))
 
         logger.info(f"Loaded PDF with {len(documents)} pages")

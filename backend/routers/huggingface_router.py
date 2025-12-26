@@ -7,13 +7,9 @@ import logging
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
-
-from database_models import get_db_session
 from schemas import (
-    HFDatasetConfig,
     HFDatasetMetadata,
     HFDirectProcessRequest,
     HFImportAsRawRequest,
@@ -23,11 +19,6 @@ from services.huggingface_dataset import huggingface_dataset_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/huggingface", tags=["huggingface"])
-
-
-def get_db():
-    """Dependency to get database session."""
-    yield from get_db_session()
 
 
 @router.get("/datasets/search")
@@ -93,7 +84,6 @@ async def validate_dataset(
 @router.post("/import-raw")
 async def import_as_raw_dataset(
     request: HFImportAsRawRequest,
-    db: Session = Depends(get_db),
 ):
     """
     Import a HuggingFace dataset as a raw dataset.
@@ -101,6 +91,9 @@ async def import_as_raw_dataset(
     This streams progress updates via Server-Sent Events.
     The dataset will be downloaded and stored as JSON files
     in the raw dataset for later processing.
+
+    Note: Uses a dedicated database session for the SSE generator
+    to avoid connection issues with long-running streams.
     """
 
     async def event_generator():
@@ -115,7 +108,7 @@ async def import_as_raw_dataset(
                     "data": json.dumps(update),
                 }
         except Exception as e:
-            logger.error(f"Import error: {e}")
+            logger.error(f"Import error: {e}", exc_info=True)
             yield {
                 "event": "error",
                 "data": json.dumps({"type": "error", "message": str(e)}),
@@ -129,13 +122,15 @@ async def import_as_raw_dataset(
 @router.post("/process-direct")
 async def process_dataset_directly(
     request: HFDirectProcessRequest,
-    db: Session = Depends(get_db),
 ):
     """
     Download and process a HuggingFace dataset directly to vector store.
 
     This combines import and processing into a single operation.
     Streams progress updates via Server-Sent Events.
+
+    Note: Uses a dedicated database session for the SSE generator
+    to avoid connection issues with long-running streams.
     """
 
     async def event_generator():
@@ -150,7 +145,7 @@ async def process_dataset_directly(
                     "data": json.dumps(update),
                 }
         except Exception as e:
-            logger.error(f"Direct processing error: {e}")
+            logger.error(f"Direct processing error: {e}", exc_info=True)
             yield {
                 "event": "error",
                 "data": json.dumps({"type": "error", "message": str(e)}),

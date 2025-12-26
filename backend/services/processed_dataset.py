@@ -311,6 +311,198 @@ class ProcessedDatasetService:
             method_counts[method] = method_counts.get(method, 0) + 1
         return method_counts
 
+    def get_chunks(
+        self,
+        db: Session,
+        dataset_id: int,
+        page: int = 1,
+        limit: int = 20,
+        search: Optional[str] = None,
+    ) -> dict:
+        """
+        Fetch chunks from vector store with pagination and optional search.
+
+        Args:
+            db: Database session
+            dataset_id: ID of the processed dataset
+            page: Page number (1-indexed)
+            limit: Number of chunks per page
+            search: Optional search term to filter chunks
+
+        Returns:
+            Dict with 'chunks' list and 'total' count
+
+        Raises:
+            ValueError: If dataset not found
+        """
+        dataset = (
+            db.query(ProcessedDataset)
+            .filter(ProcessedDataset.id == dataset_id)
+            .first()
+        )
+        if not dataset:
+            raise ValueError(f"Processed dataset with id {dataset_id} not found")
+
+        collection_name = dataset.collection_name
+        vector_backend = dataset.vector_backend
+
+        if vector_backend == "pgvector":
+            return self._get_chunks_pgvector(collection_name, page, limit, search)
+        elif vector_backend == "qdrant":
+            return self._get_chunks_qdrant(collection_name, page, limit, search)
+        else:
+            logger.warning(f"Unknown vector backend: {vector_backend}")
+            return {"chunks": [], "total": 0}
+
+    def _get_chunks_pgvector(
+        self,
+        collection_name: str,
+        page: int,
+        limit: int,
+        search: Optional[str] = None,
+    ) -> dict:
+        """Fetch chunks from pgvector."""
+        try:
+            from config import DATABASE_URL
+            from sqlalchemy import create_engine, text
+
+            engine = create_engine(DATABASE_URL)
+            offset = (page - 1) * limit
+
+            with engine.connect() as conn:
+                # Get collection UUID
+                result = conn.execute(
+                    text("SELECT uuid FROM langchain_pg_collection WHERE name = :name"),
+                    {"name": collection_name},
+                )
+                row = result.fetchone()
+                if not row:
+                    logger.warning(f"pgvector collection not found: {collection_name}")
+                    return {"chunks": [], "total": 0}
+
+                collection_uuid = row[0]
+
+                # Build query based on search
+                if search:
+                    # Search in document content
+                    count_query = text("""
+                        SELECT COUNT(*) FROM langchain_pg_embedding
+                        WHERE collection_id = :uuid
+                        AND document ILIKE :search
+                    """)
+                    data_query = text("""
+                        SELECT id, document, cmetadata
+                        FROM langchain_pg_embedding
+                        WHERE collection_id = :uuid
+                        AND document ILIKE :search
+                        ORDER BY id
+                        LIMIT :limit OFFSET :offset
+                    """)
+                    params = {
+                        "uuid": collection_uuid,
+                        "search": f"%{search}%",
+                        "limit": limit,
+                        "offset": offset,
+                    }
+                else:
+                    count_query = text("""
+                        SELECT COUNT(*) FROM langchain_pg_embedding
+                        WHERE collection_id = :uuid
+                    """)
+                    data_query = text("""
+                        SELECT id, document, cmetadata
+                        FROM langchain_pg_embedding
+                        WHERE collection_id = :uuid
+                        ORDER BY id
+                        LIMIT :limit OFFSET :offset
+                    """)
+                    params = {"uuid": collection_uuid, "limit": limit, "offset": offset}
+
+                # Get total count
+                total_result = conn.execute(
+                    count_query,
+                    {"uuid": collection_uuid, "search": f"%{search}%" if search else None},
+                )
+                total = total_result.scalar() or 0
+
+                # Get chunks
+                result = conn.execute(data_query, params)
+                rows = result.fetchall()
+
+                chunks = []
+                for row in rows:
+                    chunk_id, content, metadata = row
+                    # Parse metadata if it's a string
+                    if isinstance(metadata, str):
+                        import json
+                        try:
+                            metadata = json.loads(metadata)
+                        except json.JSONDecodeError:
+                            metadata = {}
+
+                    chunks.append({
+                        "id": str(chunk_id),
+                        "content": content,
+                        "metadata": metadata or {},
+                    })
+
+                return {"chunks": chunks, "total": total}
+
+        except Exception as e:
+            logger.error(f"Error fetching chunks from pgvector: {e}", exc_info=True)
+            return {"chunks": [], "total": 0, "error": str(e)}
+
+    def _get_chunks_qdrant(
+        self,
+        collection_name: str,
+        page: int,
+        limit: int,
+        search: Optional[str] = None,
+    ) -> dict:
+        """Fetch chunks from Qdrant."""
+        try:
+            from qdrant_client import QdrantClient
+            from config import QDRANT_HOST, QDRANT_PORT
+
+            client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+            offset = (page - 1) * limit
+
+            # Get collection info for total count
+            collection_info = client.get_collection(collection_name)
+            total = collection_info.points_count
+
+            # Scroll through points
+            points, _ = client.scroll(
+                collection_name=collection_name,
+                limit=limit,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            chunks = []
+            for point in points:
+                payload = point.payload or {}
+                # Qdrant stores content in 'page_content' or 'text' field
+                content = payload.get("page_content") or payload.get("text") or ""
+                metadata = payload.get("metadata", {})
+
+                # Filter by search if provided
+                if search and search.lower() not in content.lower():
+                    continue
+
+                chunks.append({
+                    "id": str(point.id),
+                    "content": content,
+                    "metadata": metadata,
+                })
+
+            return {"chunks": chunks, "total": total}
+
+        except Exception as e:
+            logger.error(f"Error fetching chunks from Qdrant: {e}", exc_info=True)
+            return {"chunks": [], "total": 0, "error": str(e)}
+
     def _delete_vector_collection(
         self, collection_name: str, vector_backend: str
     ) -> None:

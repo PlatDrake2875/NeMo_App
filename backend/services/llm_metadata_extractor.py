@@ -67,8 +67,9 @@ class LLMMetadataExtractor:
             )
             result.update(extraction_result)
         except Exception as e:
-            logger.error(f"Error extracting metadata: {e}")
+            logger.error(f"Error extracting metadata: {e}", exc_info=True)
             result["extraction_error"] = str(e)
+            result["extraction_failed"] = True
 
         return result
 
@@ -178,9 +179,11 @@ JSON Response:"""
                 logger.warning(f"Failed to parse JSON response: {e}")
                 # Try to extract fields individually
                 result = self._fallback_parse(response_text, config)
+                result["_used_fallback_parsing"] = True
         else:
             logger.warning("No JSON found in response, using fallback parsing")
             result = self._fallback_parse(response_text, config)
+            result["_used_fallback_parsing"] = True
 
         return result
 
