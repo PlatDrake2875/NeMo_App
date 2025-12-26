@@ -16,7 +16,10 @@ from routers import (
     dataset_router,
     document_router,
     health_router,
+    huggingface_router,
     model_router,
+    processed_dataset_router,
+    raw_dataset_router,
     upload_router,
 )
 
@@ -71,6 +74,10 @@ app.include_router(chunking_router.router, prefix="/api", tags=["Chunking Endpoi
 app.include_router(document_router.router, prefix="/api", tags=["Document Endpoints"])
 app.include_router(upload_router.router, prefix="/api", tags=["Upload Endpoints"])
 app.include_router(automate_router.router, prefix="/api", tags=["Automation Endpoints"])
+# RAG Benchmark Hub routers
+app.include_router(raw_dataset_router.router, prefix="/api", tags=["Raw Dataset Endpoints"])
+app.include_router(processed_dataset_router.router, prefix="/api", tags=["Processed Dataset Endpoints"])
+app.include_router(huggingface_router.router, prefix="/api", tags=["HuggingFace Endpoints"])
 
 
 # --- Main Method for Application Testing ---

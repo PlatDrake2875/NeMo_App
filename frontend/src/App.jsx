@@ -4,7 +4,7 @@ import "./index.css";
 
 import { AgentSelector } from "./components/AgentSelector";
 import { ChatInterface } from "./components/ChatInterface";
-import { DocumentManager } from "./components/DocumentManager";
+import { RAGBenchmarkHub } from "./components/RAGBenchmarkHub";
 import { GuardrailsEditor } from "./components/guardrails";
 
 // Import components
@@ -56,7 +56,7 @@ function App() {
 	const [sessionAgents, setSessionAgents] = useState({}); // Maps sessionId to agent
 
 	// --- State for View Management ---
-	const [currentView, setCurrentView] = useState("chat"); // 'chat', 'documents', or 'guardrails'
+	const [currentView, setCurrentView] = useState("chat"); // 'chat', 'rag-hub', or 'guardrails'
 
 	const fetchModels = useCallback(async () => {
 		setModelsLoading(true);
@@ -275,9 +275,9 @@ function App() {
 	}, []);
 
 	// --- View Switching Handlers ---
-	const handleViewDocuments = useCallback(() => {
+	const handleViewRAGHub = useCallback(() => {
 		setShowAgentSelector(false); // Close agent selector to prevent overlay blocking
-		setCurrentView("documents");
+		setCurrentView("rag-hub");
 	}, []);
 
 	const handleViewGuardrails = useCallback(() => {
@@ -318,8 +318,11 @@ function App() {
 					isUploadingPdf={isUploadingPdf}
 					pdfUploadStatus={pdfUploadStatus}
 					// View switching props
-					onViewDocuments={handleViewDocuments}
+					onViewRAGHub={handleViewRAGHub}
 					onViewGuardrails={handleViewGuardrails}
+					// Theme props
+					isDarkMode={isDarkMode}
+					toggleTheme={toggleTheme}
 				/>
 				{/* Main content area */}
 				<div className="flex-1 flex flex-col overflow-hidden">
@@ -352,8 +355,12 @@ function App() {
 							onDeleteMessage={handleDeleteMessage}
 							onRegenerateMessage={handleRegenerateMessageWithModel}
 						/>
-					) : currentView === "documents" ? (
-						<DocumentManager onBack={handleBackToChat} />
+					) : currentView === "rag-hub" ? (
+						<RAGBenchmarkHub
+							onBack={handleBackToChat}
+							isDarkMode={isDarkMode}
+							toggleTheme={toggleTheme}
+						/>
 					) : (
 						<GuardrailsEditor onBack={handleBackToChat} />
 					)}

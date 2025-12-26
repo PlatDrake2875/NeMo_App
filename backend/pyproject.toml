@@ -28,6 +28,8 @@ dependencies = [
     "nemoguardrails==0.13.0",
     "reportlab",
     "pyright>=1.1.405",
+    "sse-starlette",
+    "datasets",
 ]
 
 [project.optional-dependencies]
