@@ -17,7 +17,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
       case "dashboard":
         return <DatasetDashboard onNavigate={setCurrentView} />;
       case "raw":
-        return <RawDatasetManager />;
+        return <RawDatasetManager isDarkMode={isDarkMode} />;
       case "pipeline":
         return <PreprocessingPipeline />;
       case "processed":

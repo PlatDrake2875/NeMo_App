@@ -29,6 +29,9 @@ from services.preprocessing_pipeline import preprocessing_pipeline_service
 
 logger = logging.getLogger(__name__)
 
+# Threshold for using streaming mode (prevents memory issues with large datasets)
+STREAMING_THRESHOLD_ROWS = 100000  # Stream if dataset > 100k rows
+
 
 class HuggingFaceDatasetService:
     """Service for HuggingFace dataset operations."""
@@ -158,13 +161,29 @@ class HuggingFaceDatasetService:
             from datasets import load_dataset
             import hashlib
 
-            # Load dataset
             loop = asyncio.get_running_loop()
 
+            # First, get dataset metadata to check size (without loading full data)
+            try:
+                metadata = await self.get_dataset_metadata(config.dataset_id)
+                estimated_rows = metadata.num_rows.get(config.split, 0)
+            except Exception:
+                estimated_rows = 0  # Proceed without size estimate
+
+            # Determine if we should use streaming mode
+            use_streaming = estimated_rows > STREAMING_THRESHOLD_ROWS
+            if use_streaming:
+                yield {
+                    "type": "status",
+                    "message": f"Large dataset detected ({estimated_rows:,} rows). Using streaming mode...",
+                }
+
+            # Load dataset
             load_kwargs = {
                 "path": config.dataset_id,
                 "split": config.split,
                 "token": config.token or self.token,
+                "streaming": use_streaming,
             }
             if config.subset:
                 load_kwargs["name"] = config.subset
@@ -174,9 +193,14 @@ class HuggingFaceDatasetService:
                 lambda: load_dataset(**load_kwargs),
             )
 
-            total_rows = len(dataset)
-            if config.max_samples:
-                total_rows = min(total_rows, config.max_samples)
+            # Determine total rows
+            if use_streaming:
+                # For streaming, use estimated rows or max_samples
+                total_rows = config.max_samples or estimated_rows or 100000
+            else:
+                total_rows = len(dataset)
+                if config.max_samples:
+                    total_rows = min(total_rows, config.max_samples)
 
             yield {
                 "type": "progress",
@@ -188,60 +212,101 @@ class HuggingFaceDatasetService:
             # Process rows and create files
             batch_size = 100
             processed = 0
+            batch_data = []
+            batch_start = 0
 
-            for i in range(0, total_rows, batch_size):
-                batch_end = min(i + batch_size, total_rows)
-                batch_data = []
+            # Helper to process a single row
+            def process_row(row: dict, index: int) -> Optional[dict]:
+                text = row.get(config.text_column, "")
+                if not text and isinstance(row, dict):
+                    # Try to find any text content
+                    for value in row.values():
+                        if isinstance(value, str) and len(value) > 10:
+                            text = value
+                            break
+                if text:
+                    return {
+                        "index": index,
+                        "text": str(text),
+                        "metadata": {
+                            k: str(v) if not isinstance(v, (str, int, float, bool)) else v
+                            for k, v in row.items()
+                            if k != config.text_column
+                        },
+                    }
+                return None
 
-                for j in range(i, batch_end):
-                    row = dataset[j]
-                    # Extract text from the configured column
-                    text = row.get(config.text_column, "")
-                    if not text and isinstance(row, dict):
-                        # Try to find any text content
-                        for value in row.values():
-                            if isinstance(value, str) and len(value) > 10:
-                                text = value
-                                break
+            # Helper to save a batch
+            def save_batch(batch_data: list, batch_start: int, batch_end: int):
+                if not batch_data:
+                    return
+                content = json.dumps(batch_data, indent=2).encode("utf-8")
+                content_hash = hashlib.sha256(content).hexdigest()
 
-                    if text:
-                        batch_data.append({
-                            "index": j,
-                            "text": str(text),
-                            "metadata": {
-                                k: str(v) if not isinstance(v, (str, int, float, bool)) else v
-                                for k, v in row.items()
-                                if k != config.text_column
-                            },
-                        })
+                raw_file = RawFile(
+                    raw_dataset_id=raw_dataset.id,
+                    filename=f"batch_{batch_start:06d}_{batch_end:06d}.json",
+                    file_type="json",
+                    mime_type="application/json",
+                    size_bytes=len(content),
+                    file_content=content,
+                    content_hash=content_hash,
+                    metadata_json={"batch_start": batch_start, "batch_end": batch_end},
+                )
+                db.add(raw_file)
+                raw_dataset.total_file_count += 1
+                raw_dataset.total_size_bytes += len(content)
 
-                # Create a JSON file for this batch
+            if use_streaming:
+                # Streaming mode: iterate through dataset
+                dataset_iter = iter(dataset)
+                for idx in range(total_rows):
+                    try:
+                        row = next(dataset_iter)
+                    except StopIteration:
+                        break
+
+                    processed_row = process_row(row, idx)
+                    if processed_row:
+                        batch_data.append(processed_row)
+
+                    # Save batch when full
+                    if len(batch_data) >= batch_size:
+                        save_batch(batch_data, batch_start, idx + 1)
+                        batch_data = []
+                        batch_start = idx + 1
+                        processed = idx + 1
+                        yield {
+                            "type": "progress",
+                            "message": f"Processed {processed}/{total_rows} samples",
+                            "total": total_rows,
+                            "current": processed,
+                        }
+
+                # Save remaining batch
                 if batch_data:
-                    content = json.dumps(batch_data, indent=2).encode("utf-8")
-                    content_hash = hashlib.sha256(content).hexdigest()
+                    save_batch(batch_data, batch_start, processed + len(batch_data))
+                    processed += len(batch_data)
+            else:
+                # Non-streaming mode: index access
+                for i in range(0, total_rows, batch_size):
+                    batch_end = min(i + batch_size, total_rows)
+                    batch_data = []
 
-                    raw_file = RawFile(
-                        raw_dataset_id=raw_dataset.id,
-                        filename=f"batch_{i:06d}_{batch_end:06d}.json",
-                        file_type="json",
-                        mime_type="application/json",
-                        size_bytes=len(content),
-                        file_content=content,
-                        content_hash=content_hash,
-                        metadata_json={"batch_start": i, "batch_end": batch_end},
-                    )
-                    db.add(raw_file)
+                    for j in range(i, batch_end):
+                        row = dataset[j]
+                        processed_row = process_row(row, j)
+                        if processed_row:
+                            batch_data.append(processed_row)
 
-                    raw_dataset.total_file_count += 1
-                    raw_dataset.total_size_bytes += len(content)
-
-                processed = batch_end
-                yield {
-                    "type": "progress",
-                    "message": f"Processed {processed}/{total_rows} samples",
-                    "total": total_rows,
-                    "current": processed,
-                }
+                    save_batch(batch_data, i, batch_end)
+                    processed = batch_end
+                    yield {
+                        "type": "progress",
+                        "message": f"Processed {processed}/{total_rows} samples",
+                        "total": total_rows,
+                        "current": processed,
+                    }
 
             db.commit()
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import PropTypes from "prop-types";
 import { Button } from "../../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../ui/card";
 import { Input } from "../../ui/input";
@@ -12,6 +13,16 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../ui/alert-dialog";
+import {
   AlertCircle,
   Eye,
   FileText,
@@ -23,11 +34,10 @@ import {
   Upload,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
+import { API_BASE_URL } from "../../../lib/api-config";
 import { DocumentPreviewModal } from "../shared/DocumentPreviewModal";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
-export function RawDatasetManager() {
+export function RawDatasetManager({ isDarkMode }) {
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,6 +55,11 @@ export function RawDatasetManager() {
 
   // Preview state
   const [previewFile, setPreviewFile] = useState(null);
+
+  // Delete confirmation state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchDatasets = useCallback(async () => {
     setIsLoading(true);
@@ -118,13 +133,19 @@ export function RawDatasetManager() {
     }
   };
 
-  const handleDeleteDataset = async (datasetId) => {
-    if (!confirm("Are you sure you want to delete this dataset and all its files?")) {
-      return;
-    }
+  // Initiate delete - opens confirmation dialog
+  const handleDeleteDataset = (datasetId) => {
+    setPendingDeleteId(datasetId);
+    setDeleteConfirmOpen(true);
+  };
 
+  // Confirm delete - actually deletes the dataset
+  const confirmDeleteDataset = async () => {
+    if (!pendingDeleteId) return;
+
+    setIsDeleting(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/raw-datasets/${datasetId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/raw-datasets/${pendingDeleteId}`, {
         method: "DELETE",
       });
 
@@ -132,13 +153,17 @@ export function RawDatasetManager() {
         throw new Error("Failed to delete dataset");
       }
 
-      setDatasets((prev) => prev.filter((ds) => ds.id !== datasetId));
-      if (selectedDataset?.id === datasetId) {
+      setDatasets((prev) => prev.filter((ds) => ds.id !== pendingDeleteId));
+      if (selectedDataset?.id === pendingDeleteId) {
         setSelectedDataset(null);
       }
     } catch (err) {
       console.error("Error deleting dataset:", err);
       setError(err.message);
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmOpen(false);
+      setPendingDeleteId(null);
     }
   };
 
@@ -493,10 +518,53 @@ export function RawDatasetManager() {
         <DocumentPreviewModal
           file={previewFile}
           onClose={() => setPreviewFile(null)}
+          isDarkMode={isDarkMode}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Dataset</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this dataset and all its files?
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                setPendingDeleteId(null);
+              }}
+              disabled={isDeleting}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteDataset}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+RawDatasetManager.propTypes = {
+  isDarkMode: PropTypes.bool,
+};
 
 export default RawDatasetManager;

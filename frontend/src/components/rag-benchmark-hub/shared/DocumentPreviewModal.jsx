@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import PropTypes from "prop-types";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useTheme } from "../../../hooks/useTheme";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../ui/dialog";
@@ -20,14 +20,12 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { API_BASE_URL } from "../../../lib/api-config";
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
-export function DocumentPreviewModal({ file, onClose }) {
-  const { isDarkMode } = useTheme();
+export function DocumentPreviewModal({ file, onClose, isDarkMode }) {
   const [content, setContent] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,7 +35,14 @@ export function DocumentPreviewModal({ file, onClose }) {
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1);
 
+  // Ref to track blob URL for proper cleanup (avoids stale closure)
+  const blobUrlRef = useRef(null);
+  // Ref to track if component is mounted (for StrictMode double-invoke handling)
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
+    isMountedRef.current = true;
+
     const fetchContent = async () => {
       setIsLoading(true);
       setError(null);
@@ -53,25 +58,44 @@ export function DocumentPreviewModal({ file, onClose }) {
 
         if (file.file_type === "pdf") {
           const blob = await response.blob();
-          setContent(URL.createObjectURL(blob));
+          // Only update state if still mounted
+          if (!isMountedRef.current) {
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          blobUrlRef.current = url;
+          setContent(url);
         } else {
           const text = await response.text();
+          // Only update state if still mounted
+          if (!isMountedRef.current) {
+            return;
+          }
           setContent(text);
         }
       } catch (err) {
+        if (!isMountedRef.current) {
+          return;
+        }
         console.error("Error fetching file:", err);
         setError(err.message);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchContent();
 
     return () => {
-      // Cleanup blob URL
-      if (content && file.file_type === "pdf") {
-        URL.revokeObjectURL(content);
+      isMountedRef.current = false;
+      // Clear content first to prevent react-pdf from rendering with stale URL
+      setContent(null);
+      // Then revoke the blob URL using ref (avoids stale closure)
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
       }
     };
   }, [file]);
@@ -117,6 +141,10 @@ export function DocumentPreviewModal({ file, onClose }) {
     }
 
     if (file.file_type === "pdf") {
+      // Guard against rendering with null/destroyed content
+      if (!content) {
+        return null;
+      }
       return (
         <div className="flex flex-col items-center">
           {/* PDF Controls */}
@@ -167,6 +195,7 @@ export function DocumentPreviewModal({ file, onClose }) {
           <ScrollArea className="h-[60vh] w-full">
             <div className="flex justify-center">
               <Document
+                key={content}
                 file={content}
                 onLoadSuccess={onDocumentLoadSuccess}
                 loading={
@@ -224,6 +253,9 @@ export function DocumentPreviewModal({ file, onClose }) {
               Download
             </Button>
           </div>
+          <DialogDescription className="sr-only">
+            Preview of {file.filename}
+          </DialogDescription>
         </DialogHeader>
         {renderContent()}
       </DialogContent>
@@ -239,6 +271,7 @@ DocumentPreviewModal.propTypes = {
     file_type: PropTypes.string.isRequired,
   }).isRequired,
   onClose: PropTypes.func.isRequired,
+  isDarkMode: PropTypes.bool,
 };
 
 export default DocumentPreviewModal;

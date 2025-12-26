@@ -15,9 +15,7 @@ import { useChatSessions } from "./hooks/useChatSessions";
 import { useTheme } from "./hooks/useTheme";
 // Import utilities
 import { formatSessionName } from "./utils/session";
-
-// Define the backend API URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import { API_BASE_URL } from "./lib/api-config";
 
 function App() {
 	const { isDarkMode, toggleTheme } = useTheme();
@@ -362,7 +360,7 @@ function App() {
 							toggleTheme={toggleTheme}
 						/>
 					) : (
-						<GuardrailsEditor onBack={handleBackToChat} />
+						<GuardrailsEditor onBack={handleBackToChat} isDarkMode={isDarkMode} />
 					)}
 				</div>
 

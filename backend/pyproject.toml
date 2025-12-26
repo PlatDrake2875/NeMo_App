@@ -30,6 +30,8 @@ dependencies = [
     "pyright>=1.1.405",
     "sse-starlette",
     "datasets",
+    "slowapi>=0.1.9",
+    "regex>=2023.0",
 ]
 
 [project.optional-dependencies]

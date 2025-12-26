@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database_models import (
     ProcessedDataset,
@@ -31,6 +31,22 @@ logger = logging.getLogger(__name__)
 
 class ProcessedDatasetService:
     """Service for managing processed datasets."""
+
+    @staticmethod
+    def _escape_like_pattern(value: str) -> str:
+        """
+        Escape SQL LIKE/ILIKE special characters to prevent wildcard injection.
+
+        Args:
+            value: The search string to escape
+
+        Returns:
+            Escaped string safe for use in LIKE/ILIKE patterns
+        """
+        if not value:
+            return value
+        # Escape backslash first (it's the escape char), then % and _
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     def create_dataset(
         self, db: Session, request: ProcessedDatasetCreate
@@ -98,23 +114,19 @@ class ProcessedDatasetService:
         return self._to_dataset_info(dataset, raw_dataset.name)
 
     def list_datasets(self, db: Session) -> ProcessedDatasetListResponse:
-        """List all processed datasets."""
+        """List all processed datasets with eager-loaded raw dataset names."""
+        # Use joinedload to avoid N+1 query problem
         datasets = (
             db.query(ProcessedDataset)
+            .options(joinedload(ProcessedDataset.raw_dataset))
             .order_by(ProcessedDataset.created_at.desc())
             .all()
         )
 
         dataset_infos = []
         for ds in datasets:
-            raw_name = None
-            if ds.raw_dataset_id:
-                raw_ds = (
-                    db.query(RawDataset)
-                    .filter(RawDataset.id == ds.raw_dataset_id)
-                    .first()
-                )
-                raw_name = raw_ds.name if raw_ds else None
+            # raw_dataset is already loaded via joinedload - no additional query
+            raw_name = ds.raw_dataset.name if ds.raw_dataset else None
             dataset_infos.append(self._to_dataset_info(ds, raw_name))
 
         return ProcessedDatasetListResponse(count=len(dataset_infos), datasets=dataset_infos)
@@ -122,47 +134,35 @@ class ProcessedDatasetService:
     def get_dataset(
         self, db: Session, dataset_id: int
     ) -> Optional[ProcessedDatasetInfo]:
-        """Get a processed dataset by ID."""
+        """Get a processed dataset by ID with eager-loaded raw dataset."""
         dataset = (
             db.query(ProcessedDataset)
+            .options(joinedload(ProcessedDataset.raw_dataset))
             .filter(ProcessedDataset.id == dataset_id)
             .first()
         )
         if not dataset:
             return None
 
-        raw_name = None
-        if dataset.raw_dataset_id:
-            raw_ds = (
-                db.query(RawDataset)
-                .filter(RawDataset.id == dataset.raw_dataset_id)
-                .first()
-            )
-            raw_name = raw_ds.name if raw_ds else None
-
+        # raw_dataset is already loaded via joinedload - no additional query
+        raw_name = dataset.raw_dataset.name if dataset.raw_dataset else None
         return self._to_dataset_info(dataset, raw_name)
 
     def get_dataset_by_name(
         self, db: Session, name: str
     ) -> Optional[ProcessedDatasetInfo]:
-        """Get a processed dataset by name."""
+        """Get a processed dataset by name with eager-loaded raw dataset."""
         dataset = (
             db.query(ProcessedDataset)
+            .options(joinedload(ProcessedDataset.raw_dataset))
             .filter(ProcessedDataset.name == name)
             .first()
         )
         if not dataset:
             return None
 
-        raw_name = None
-        if dataset.raw_dataset_id:
-            raw_ds = (
-                db.query(RawDataset)
-                .filter(RawDataset.id == dataset.raw_dataset_id)
-                .first()
-            )
-            raw_name = raw_ds.name if raw_ds else None
-
+        # raw_dataset is already loaded via joinedload - no additional query
+        raw_name = dataset.raw_dataset.name if dataset.raw_dataset else None
         return self._to_dataset_info(dataset, raw_name)
 
     def delete_dataset(self, db: Session, dataset_id: int) -> dict:
@@ -363,10 +363,10 @@ class ProcessedDatasetService:
     ) -> dict:
         """Fetch chunks from pgvector."""
         try:
-            from config import DATABASE_URL
+            from config import POSTGRES_CONNECTION_STRING
             from sqlalchemy import create_engine, text
 
-            engine = create_engine(DATABASE_URL)
+            engine = create_engine(POSTGRES_CONNECTION_STRING)
             offset = (page - 1) * limit
 
             with engine.connect() as conn:
@@ -384,6 +384,10 @@ class ProcessedDatasetService:
 
                 # Build query based on search
                 if search:
+                    # Escape SQL LIKE wildcards to prevent injection
+                    escaped_search = self._escape_like_pattern(search)
+                    search_pattern = f"%{escaped_search}%"
+
                     # Search in document content
                     count_query = text("""
                         SELECT COUNT(*) FROM langchain_pg_embedding
@@ -400,7 +404,7 @@ class ProcessedDatasetService:
                     """)
                     params = {
                         "uuid": collection_uuid,
-                        "search": f"%{search}%",
+                        "search": search_pattern,
                         "limit": limit,
                         "offset": offset,
                     }
@@ -419,10 +423,10 @@ class ProcessedDatasetService:
                     params = {"uuid": collection_uuid, "limit": limit, "offset": offset}
 
                 # Get total count
-                total_result = conn.execute(
-                    count_query,
-                    {"uuid": collection_uuid, "search": f"%{search}%" if search else None},
-                )
+                count_params = {"uuid": collection_uuid}
+                if search:
+                    count_params["search"] = search_pattern
+                total_result = conn.execute(count_query, count_params)
                 total = total_result.scalar() or 0
 
                 # Get chunks

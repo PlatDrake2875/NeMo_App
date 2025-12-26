@@ -155,20 +155,21 @@ class RawDatasetService:
                 )
 
         # Read file content with streaming size check
-        content = b""
-        bytes_read = 0
+        # Use bytearray for efficient memory usage (avoids O(n^2) byte concatenation)
+        content_buffer = bytearray()
         chunk_size = 8192  # 8KB chunks
         while True:
             chunk = await file.read(chunk_size)
             if not chunk:
                 break
-            bytes_read += len(chunk)
-            if bytes_read > self.MAX_FILE_SIZE_BYTES:
+            # Check size before extending to fail fast
+            if len(content_buffer) + len(chunk) > self.MAX_FILE_SIZE_BYTES:
                 raise ValueError(
                     f"File too large (>{self.MAX_FILE_SIZE_BYTES} bytes). "
                     f"Maximum: {self.MAX_FILE_SIZE_BYTES} bytes"
                 )
-            content += chunk
+            content_buffer.extend(chunk)
+        content = bytes(content_buffer)
 
         # Compute hash for deduplication
         content_hash = self._compute_hash(content)

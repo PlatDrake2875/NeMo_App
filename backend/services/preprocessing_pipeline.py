@@ -6,8 +6,11 @@ Implements the pipeline: Load -> Clean -> Extract Metadata -> Chunk -> Index
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
+import regex  # regex module with timeout support for ReDoS protection
 
 from langchain_core.documents import Document
 from sqlalchemy.orm import Session
@@ -27,6 +30,9 @@ from services.processed_dataset import processed_dataset_service
 from vectorstore_factory import VectorStoreFactory
 
 logger = logging.getLogger(__name__)
+
+# Timeout for user-provided regex patterns (ReDoS protection)
+REGEX_TIMEOUT_SECONDS = 1.0
 
 
 class PreprocessingPipelineService:
@@ -263,8 +269,6 @@ class PreprocessingPipelineService:
         self, documents: List[Document], config: CleaningConfig
     ) -> List[Document]:
         """Apply cleaning transformations to documents."""
-        import re
-
         cleaned_docs = []
 
         for doc in documents:
@@ -290,12 +294,9 @@ class PreprocessingPipelineService:
                 ]
                 text = "\n".join(filtered_lines)
 
-            # Apply custom patterns
+            # Apply custom patterns with timeout protection (ReDoS prevention)
             for pattern in config.custom_patterns:
-                try:
-                    text = re.sub(pattern, "", text)
-                except re.error:
-                    logger.warning(f"Invalid regex pattern: {pattern}")
+                text = self._apply_custom_pattern(text, pattern)
 
             if text.strip():
                 cleaned_docs.append(
@@ -303,6 +304,31 @@ class PreprocessingPipelineService:
                 )
 
         return cleaned_docs
+
+    def _apply_custom_pattern(self, text: str, pattern: str) -> str:
+        """
+        Apply a custom regex pattern with timeout protection against ReDoS.
+
+        Args:
+            text: The text to apply the pattern to
+            pattern: The regex pattern to apply
+
+        Returns:
+            The text with the pattern removed, or original text if pattern fails
+        """
+        try:
+            # Use regex module with timeout to prevent catastrophic backtracking
+            # Timeout is passed to sub(), not compile()
+            return regex.sub(pattern, "", text, timeout=REGEX_TIMEOUT_SECONDS)
+        except regex.error as e:
+            logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+            return text
+        except TimeoutError:
+            logger.warning(
+                f"Regex pattern '{pattern}' timed out after {REGEX_TIMEOUT_SECONDS}s "
+                "(ReDoS protection triggered)"
+            )
+            return text
 
     async def _extract_metadata(
         self,
