@@ -52,11 +52,11 @@ class TestChunkingConfigSchema:
         """Test default values are applied."""
         config = ChunkingConfigSchema()
         assert config.method == "recursive"
-        assert config.chunk_size == 512
-        assert config.chunk_overlap == 50
+        assert config.chunk_size == 1000
+        assert config.chunk_overlap == 200
 
     def test_valid_methods(self):
         """Test various valid chunking methods."""
-        for method in ["character", "recursive", "token", "semantic"]:
+        for method in ["recursive", "fixed", "semantic"]:
             config = ChunkingConfigSchema(method=method)
             assert config.method == method

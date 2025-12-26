@@ -265,7 +265,8 @@ class TestSplitDocumentsMetadata:
     def test_handles_empty_metadata(self):
         """Documents with no metadata should get metadata dict created."""
         strategy = RecursiveChunking()
-        docs = [Document(page_content="Content " * 200, metadata=None)]
+        # Document requires metadata to be a dict (not None), use empty dict
+        docs = [Document(page_content="Content " * 200, metadata={})]
 
         # Should not raise
         chunks = strategy.split_documents(docs)
