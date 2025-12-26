@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from database_models import get_db_session
 from schemas import (
+    BatchUploadResponse,
     RawDatasetCreate,
     RawDatasetInfo,
     RawDatasetListResponse,
@@ -109,7 +110,7 @@ async def upload_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/{dataset_id}/files/batch", response_model=List[RawFileInfo])
+@router.post("/{dataset_id}/files/batch", response_model=BatchUploadResponse)
 async def upload_files_batch(
     dataset_id: int,
     files: List[UploadFile] = File(..., description="Files to upload"),
@@ -118,8 +119,7 @@ async def upload_files_batch(
     """
     Upload multiple files to a raw dataset.
 
-    Returns a list of successfully uploaded files.
-    Files that fail validation are skipped.
+    Returns structured response with both successful uploads and failures.
     """
     try:
         return await raw_dataset_service.add_files_batch(db, dataset_id, files)

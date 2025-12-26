@@ -134,10 +134,17 @@ class PreprocessingPipelineService:
                 db, processed_dataset_id, stats["total_documents"], stats["total_chunks"]
             )
 
-            # Update status to completed
-            processed_dataset_service.update_processing_status(
-                db, processed_dataset_id, ProcessingStatus.COMPLETED
-            )
+            # Update status based on whether there were errors
+            if stats["errors"]:
+                error_msg = f"{len(stats['errors'])} file(s) failed to process"
+                processed_dataset_service.update_processing_status(
+                    db, processed_dataset_id, ProcessingStatus.COMPLETED, error=error_msg
+                )
+                logger.warning(f"Dataset {processed_dataset_id} completed with errors: {error_msg}")
+            else:
+                processed_dataset_service.update_processing_status(
+                    db, processed_dataset_id, ProcessingStatus.COMPLETED
+                )
 
             if progress_callback:
                 progress_callback("completed", stats)

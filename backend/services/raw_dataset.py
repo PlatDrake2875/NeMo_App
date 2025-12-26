@@ -134,15 +134,29 @@ class RawDatasetService:
         except ValueError as e:
             raise ValueError(f"Unsupported file type: {e}")
 
-        # Read file content
-        content = await file.read()
+        # Check file size before reading into memory (if Content-Length available)
+        if hasattr(file, 'size') and file.size:
+            if file.size > self.MAX_FILE_SIZE_BYTES:
+                raise ValueError(
+                    f"File too large: {file.size} bytes. "
+                    f"Maximum: {self.MAX_FILE_SIZE_BYTES} bytes"
+                )
 
-        # Check file size
-        if len(content) > self.MAX_FILE_SIZE_BYTES:
-            raise ValueError(
-                f"File too large: {len(content)} bytes. "
-                f"Maximum: {self.MAX_FILE_SIZE_BYTES} bytes"
-            )
+        # Read file content with streaming size check
+        content = b""
+        bytes_read = 0
+        chunk_size = 8192  # 8KB chunks
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            if bytes_read > self.MAX_FILE_SIZE_BYTES:
+                raise ValueError(
+                    f"File too large (>{self.MAX_FILE_SIZE_BYTES} bytes). "
+                    f"Maximum: {self.MAX_FILE_SIZE_BYTES} bytes"
+                )
+            content += chunk
 
         # Compute hash for deduplication
         content_hash = self._compute_hash(content)
@@ -195,16 +209,30 @@ class RawDatasetService:
 
     async def add_files_batch(
         self, db: Session, dataset_id: int, files: List[UploadFile]
-    ) -> List[RawFileInfo]:
-        """Add multiple files to a raw dataset."""
-        results = []
+    ) -> dict:
+        """
+        Add multiple files to a raw dataset.
+
+        Returns:
+            Dict with 'successful' (list of RawFileInfo) and 'failed' (list of error dicts)
+        """
+        results = {"successful": [], "failed": []}
         for file in files:
             try:
                 file_info = await self.add_file(db, dataset_id, file)
-                results.append(file_info)
+                results["successful"].append(file_info)
+            except ValueError as e:
+                logger.warning(f"Validation failed for {file.filename}: {e}")
+                results["failed"].append({
+                    "filename": file.filename,
+                    "error": str(e)
+                })
             except Exception as e:
-                logger.error(f"Error adding file {file.filename}: {e}")
-                # Continue with other files
+                logger.error(f"Error adding file {file.filename}: {e}", exc_info=True)
+                results["failed"].append({
+                    "filename": file.filename,
+                    "error": f"Internal error: {str(e)}"
+                })
         return results
 
     def delete_file(self, db: Session, dataset_id: int, file_id: int) -> dict:

@@ -77,6 +77,11 @@ export function HuggingFaceImporter() {
 
       const data = await response.json();
       setSearchResults(data.datasets || []);
+
+      // Check for server-side search error
+      if (data.error) {
+        setError(data.error);
+      }
     } catch (err) {
       console.error("Search error:", err);
       setError(err.message);
@@ -144,22 +149,27 @@ export function HuggingFaceImporter() {
         ? `${API_BASE_URL}/api/huggingface/import-raw`
         : `${API_BASE_URL}/api/huggingface/process-direct`;
 
+    // Build request body matching backend schema
+    const hfConfig = {
+      dataset_id: selectedDataset.id,
+      text_column: textColumn,
+      split: split,
+      max_samples: maxRows,
+    };
+
     const body =
       importMode === "raw"
         ? {
-            dataset_id: selectedDataset.id,
-            name: datasetName.trim(),
-            text_column: textColumn,
-            split: split,
-            max_rows: maxRows,
+            hf_config: hfConfig,
+            raw_dataset_name: datasetName.trim(),
+            description: null,
           }
         : {
-            dataset_id: selectedDataset.id,
-            name: datasetName.trim(),
-            text_column: textColumn,
-            split: split,
-            max_rows: maxRows,
+            hf_config: hfConfig,
+            processed_dataset_name: datasetName.trim(),
+            description: null,
             preprocessing_config: {
+              cleaning: { enabled: false },
               llm_metadata: {
                 enabled: enableMetadataExtraction,
                 extract_summary: true,
@@ -209,10 +219,11 @@ export function HuggingFaceImporter() {
               const data = JSON.parse(line.slice(6));
               setImportProgress((prev) => [...prev, data]);
 
-              if (data.status === "completed") {
+              // Backend sends "type" field: "status", "progress", "completed", "error"
+              if (data.type === "completed") {
                 setImportComplete(true);
                 setIsImporting(false);
-              } else if (data.status === "error") {
+              } else if (data.type === "error") {
                 setError(data.message || "Import failed");
                 setIsImporting(false);
               }
@@ -548,18 +559,18 @@ export function HuggingFaceImporter() {
                     key={idx}
                     className={cn(
                       "text-sm p-2 rounded",
-                      log.status === "error"
+                      log.type === "error"
                         ? "bg-destructive/10 text-destructive"
-                        : log.status === "completed"
+                        : log.type === "completed"
                         ? "bg-green-100 dark:bg-green-900/20 text-green-600"
                         : "bg-muted"
                     )}
                   >
-                    {log.step && <span className="font-medium">{log.step}: </span>}
+                    {log.type && <span className="font-medium">[{log.type}] </span>}
                     {log.message}
-                    {log.progress !== undefined && (
+                    {log.current !== undefined && log.total !== undefined && (
                       <span className="text-muted-foreground ml-2">
-                        ({Math.round(log.progress)}%)
+                        ({log.current}/{log.total})
                       </span>
                     )}
                   </div>

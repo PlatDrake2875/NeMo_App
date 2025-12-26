@@ -4,6 +4,7 @@ HuggingFace Integration Router - Import datasets from HuggingFace Hub.
 
 import json
 import logging
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -39,8 +40,19 @@ async def search_datasets(
 
     Returns a list of matching datasets with basic metadata.
     """
-    results = await huggingface_dataset_service.search_datasets(query, limit)
-    return {"count": len(results), "datasets": results}
+    result = await huggingface_dataset_service.search_datasets(query, limit)
+    return {
+        "count": len(result["results"]),
+        "datasets": result["results"],
+        "error": result["error"],
+    }
+
+
+def _validate_dataset_id(dataset_id: str) -> None:
+    """Validate HuggingFace dataset ID format."""
+    # Dataset IDs should be in format: "owner/name" or "name"
+    if not re.match(r'^[\w.-]+(/[\w.-]+)?$', dataset_id):
+        raise HTTPException(status_code=400, detail="Invalid dataset ID format")
 
 
 @router.get("/datasets/{dataset_id:path}/metadata", response_model=HFDatasetMetadata)
@@ -53,6 +65,7 @@ async def get_dataset_metadata(
     Returns information about the dataset including available splits,
     features (columns), and row counts.
     """
+    _validate_dataset_id(dataset_id)
     try:
         return await huggingface_dataset_service.get_dataset_metadata(dataset_id)
     except ValueError as e:
@@ -68,6 +81,7 @@ async def validate_dataset(
 
     Returns validation status and any error messages.
     """
+    _validate_dataset_id(dataset_id)
     is_valid, error = await huggingface_dataset_service.validate_dataset(dataset_id)
     return {
         "dataset_id": dataset_id,
@@ -90,8 +104,12 @@ async def import_as_raw_dataset(
     """
 
     async def event_generator():
+        # Create dedicated database session for the generator
+        from database_models import get_session_maker
+        SessionLocal = get_session_maker()
+        stream_db = SessionLocal()
         try:
-            async for update in huggingface_dataset_service.import_as_raw(db, request):
+            async for update in huggingface_dataset_service.import_as_raw(stream_db, request):
                 yield {
                     "event": update.get("type", "message"),
                     "data": json.dumps(update),
@@ -102,6 +120,8 @@ async def import_as_raw_dataset(
                 "event": "error",
                 "data": json.dumps({"type": "error", "message": str(e)}),
             }
+        finally:
+            stream_db.close()
 
     return EventSourceResponse(event_generator())
 
@@ -119,8 +139,12 @@ async def process_dataset_directly(
     """
 
     async def event_generator():
+        # Create dedicated database session for the generator
+        from database_models import get_session_maker
+        SessionLocal = get_session_maker()
+        stream_db = SessionLocal()
         try:
-            async for update in huggingface_dataset_service.process_direct(db, request):
+            async for update in huggingface_dataset_service.process_direct(stream_db, request):
                 yield {
                     "event": update.get("type", "message"),
                     "data": json.dumps(update),
@@ -131,6 +155,8 @@ async def process_dataset_directly(
                 "event": "error",
                 "data": json.dumps({"type": "error", "message": str(e)}),
             }
+        finally:
+            stream_db.close()
 
     return EventSourceResponse(event_generator())
 
@@ -147,19 +173,20 @@ async def preview_dataset(
 
     Returns sample rows from the specified split.
     """
+    _validate_dataset_id(dataset_id)
     try:
         from datasets import load_dataset
         import asyncio
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
-        # Load a small sample
+        # Load a small sample (trust_remote_code=False for security)
         dataset = await loop.run_in_executor(
             None,
             lambda: load_dataset(
                 dataset_id,
                 split=f"{split}[:{limit}]",
-                trust_remote_code=True,
+                trust_remote_code=False,
             ),
         )
 

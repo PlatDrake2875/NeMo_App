@@ -753,12 +753,20 @@ class LLMMetadataConfig(BaseModel):
 
 class ChunkingConfigSchema(BaseModel):
     """Configuration for document chunking."""
-    method: str = Field(default="recursive", description="recursive, fixed, or semantic")
+    method: str = Field(default="recursive", pattern="^(recursive|fixed|semantic)$")
     chunk_size: int = Field(default=1000, ge=100, le=10000)
     chunk_overlap: int = Field(default=200, ge=0, le=2000)
     # Semantic chunking specific
     embedder_model: Optional[str] = None
     breakpoint_threshold_type: str = Field(default="percentile")
+
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        """Validate with cross-field constraints."""
+        result = super().model_validate(obj, *args, **kwargs)
+        if result.chunk_overlap >= result.chunk_size:
+            raise ValueError("chunk_overlap must be less than chunk_size")
+        return result
 
     class Config:
         json_schema_extra = {
@@ -992,6 +1000,35 @@ class ExtractedMetadataInfo(BaseModel):
                 "keywords": ["machine learning", "neural networks", "optimization"],
                 "entities": [{"type": "person", "value": "John Smith"}, {"type": "org", "value": "MIT"}],
                 "categories": ["Computer Science", "Artificial Intelligence"]
+            }
+        }
+
+
+# --- Batch Upload Response Schema ---
+class BatchUploadFailedFile(BaseModel):
+    """Information about a file that failed to upload."""
+    filename: str
+    error: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "filename": "bad_file.xyz",
+                "error": "Unsupported file type"
+            }
+        }
+
+
+class BatchUploadResponse(BaseModel):
+    """Response for batch file upload."""
+    successful: List[RawFileInfo]
+    failed: List[BatchUploadFailedFile]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "successful": [],
+                "failed": [{"filename": "bad.xyz", "error": "Unsupported type"}]
             }
         }
 

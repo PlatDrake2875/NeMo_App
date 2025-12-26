@@ -215,9 +215,13 @@ async def start_processing_stream(
         raise HTTPException(status_code=400, detail="Dataset is already being processed")
 
     async def event_generator():
+        # Create dedicated database session for the generator
+        from database_models import get_session_maker
+        SessionLocal = get_session_maker()
+        stream_db = SessionLocal()
         try:
             async for update in preprocessing_pipeline_service.process_dataset_stream(
-                db, dataset_id
+                stream_db, dataset_id
             ):
                 yield {
                     "event": update.get("type", "message"),
@@ -228,6 +232,8 @@ async def start_processing_stream(
                 "event": "error",
                 "data": json.dumps({"error": str(e)}),
             }
+        finally:
+            stream_db.close()
 
     return EventSourceResponse(event_generator())
 
@@ -250,16 +256,35 @@ async def reprocess_dataset(
     if dataset.processing_status == "processing":
         raise HTTPException(status_code=400, detail="Dataset is currently being processed")
 
+    # Clear existing vectors before reprocessing
+    vectors_cleared = True
+    clear_warning = None
+    try:
+        processed_dataset_service._delete_vector_collection(
+            dataset.collection_name, dataset.vector_backend
+        )
+        logger.info(f"Cleared vector collection for reprocessing: {dataset.collection_name}")
+    except Exception as e:
+        logger.warning(f"Could not clear vectors for reprocessing: {e}")
+        vectors_cleared = False
+        clear_warning = str(e)
+
     # Reset status
     processed_dataset_service.update_processing_status(
         db, dataset_id, ProcessingStatus.PENDING
     )
 
-    # TODO: Clear existing vectors before reprocessing
+    # Reset counts
+    processed_dataset_service.update_counts(db, dataset_id, 0, 0)
 
     background_tasks.add_task(_run_processing, dataset_id)
 
-    return {"message": "Reprocessing started", "dataset_id": dataset_id}
+    return {
+        "message": "Reprocessing started",
+        "dataset_id": dataset_id,
+        "vectors_cleared": vectors_cleared,
+        "warning": clear_warning,
+    }
 
 
 async def _run_processing(dataset_id: int):

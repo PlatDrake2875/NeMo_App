@@ -49,7 +49,7 @@ class HuggingFaceDatasetService:
             from datasets import load_dataset_builder
 
             # Run in executor to not block
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             builder = await loop.run_in_executor(
                 None,
                 lambda: load_dataset_builder(dataset_id, token=self.token),
@@ -154,7 +154,7 @@ class HuggingFaceDatasetService:
             import hashlib
 
             # Load dataset
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
 
             load_kwargs = {
                 "path": config.dataset_id,
@@ -325,7 +325,7 @@ class HuggingFaceDatasetService:
 
     async def search_datasets(
         self, query: str, limit: int = 20
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Search for datasets on HuggingFace Hub.
 
@@ -334,14 +334,14 @@ class HuggingFaceDatasetService:
             limit: Maximum number of results
 
         Returns:
-            List of dataset info dicts
+            Dict with 'results' list and optional 'error' string
         """
         try:
             from huggingface_hub import HfApi
 
             api = HfApi(token=self.token)
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             datasets = await loop.run_in_executor(
                 None,
                 lambda: list(api.list_datasets(search=query, limit=limit)),
@@ -358,11 +358,11 @@ class HuggingFaceDatasetService:
                     "description": getattr(ds, "description", None),
                 })
 
-            return results
+            return {"results": results, "error": None}
 
         except Exception as e:
             logger.error(f"Error searching HF datasets: {e}")
-            return []
+            return {"results": [], "error": f"Search failed: {str(e)}"}
 
 
 # Factory function

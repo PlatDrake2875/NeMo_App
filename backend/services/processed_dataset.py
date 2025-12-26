@@ -174,7 +174,7 @@ class ProcessedDatasetService:
             dataset_id: ID of the dataset to delete
 
         Returns:
-            Dict with deletion details
+            Dict with deletion details including any warnings
         """
         dataset = (
             db.query(ProcessedDataset)
@@ -189,10 +189,14 @@ class ProcessedDatasetService:
         vector_backend = dataset.vector_backend
 
         # Delete the vector store collection
+        collection_deleted = True
+        collection_warning = None
         try:
             self._delete_vector_collection(collection_name, vector_backend)
         except Exception as e:
             logger.warning(f"Error deleting vector collection {collection_name}: {e}")
+            collection_deleted = False
+            collection_warning = f"Vector collection could not be deleted: {e}"
 
         # Delete the database record
         db.delete(dataset)
@@ -201,7 +205,9 @@ class ProcessedDatasetService:
         logger.info(f"Deleted processed dataset: {name} (id={dataset_id})")
         return {
             "message": f"Processed dataset '{name}' deleted successfully",
-            "collection_deleted": collection_name,
+            "collection_name": collection_name,
+            "collection_deleted": collection_deleted,
+            "warning": collection_warning,
         }
 
     def get_processing_status(
@@ -229,15 +235,21 @@ class ProcessedDatasetService:
         dataset_id: int,
         status: ProcessingStatus,
         error: Optional[str] = None,
-    ) -> None:
-        """Update the processing status of a dataset."""
+    ) -> bool:
+        """
+        Update the processing status of a dataset.
+
+        Returns:
+            True if update successful, False if dataset not found
+        """
         dataset = (
             db.query(ProcessedDataset)
             .filter(ProcessedDataset.id == dataset_id)
             .first()
         )
         if not dataset:
-            return
+            logger.error(f"Cannot update status: dataset {dataset_id} not found")
+            return False
 
         dataset.processing_status = status.value
         dataset.processing_error = error
@@ -249,23 +261,32 @@ class ProcessedDatasetService:
             dataset.processing_completed_at = datetime.now(timezone.utc)
 
         db.commit()
+        logger.debug(f"Updated dataset {dataset_id} status to {status.value}")
+        return True
 
     def update_counts(
         self, db: Session, dataset_id: int, document_count: int, chunk_count: int
-    ) -> None:
-        """Update the document and chunk counts."""
+    ) -> bool:
+        """
+        Update the document and chunk counts.
+
+        Returns:
+            True if update successful, False if dataset not found
+        """
         dataset = (
             db.query(ProcessedDataset)
             .filter(ProcessedDataset.id == dataset_id)
             .first()
         )
         if not dataset:
-            return
+            logger.error(f"Cannot update counts: dataset {dataset_id} not found")
+            return False
 
         dataset.document_count = document_count
         dataset.chunk_count = chunk_count
         dataset.updated_at = datetime.now(timezone.utc)
         db.commit()
+        return True
 
     def get_datasets_by_backend(self, db: Session) -> dict:
         """Get count of datasets grouped by vector backend."""
@@ -295,10 +316,44 @@ class ProcessedDatasetService:
     ) -> None:
         """Delete a vector store collection."""
         if vector_backend == "pgvector":
-            # For pgvector, we need to delete from langchain_pg_embedding
-            # This would require raw SQL or using the vectorstore directly
-            logger.info(f"Would delete pgvector collection: {collection_name}")
-            # Implementation depends on how collections are stored
+            try:
+                from config import DATABASE_URL
+                from sqlalchemy import create_engine, text
+
+                engine = create_engine(DATABASE_URL)
+                with engine.connect() as conn:
+                    # Delete from langchain_pg_embedding where collection matches
+                    # First get the collection UUID
+                    result = conn.execute(
+                        text(
+                            "SELECT uuid FROM langchain_pg_collection WHERE name = :name"
+                        ),
+                        {"name": collection_name}
+                    )
+                    row = result.fetchone()
+                    if row:
+                        collection_uuid = row[0]
+                        # Delete embeddings for this collection
+                        conn.execute(
+                            text(
+                                "DELETE FROM langchain_pg_embedding WHERE collection_id = :uuid"
+                            ),
+                            {"uuid": collection_uuid}
+                        )
+                        # Delete the collection record
+                        conn.execute(
+                            text(
+                                "DELETE FROM langchain_pg_collection WHERE uuid = :uuid"
+                            ),
+                            {"uuid": collection_uuid}
+                        )
+                        conn.commit()
+                        logger.info(f"Deleted pgvector collection: {collection_name}")
+                    else:
+                        logger.warning(f"pgvector collection not found: {collection_name}")
+            except Exception as e:
+                logger.error(f"Error deleting pgvector collection {collection_name}: {e}")
+                raise
         elif vector_backend == "qdrant":
             try:
                 from qdrant_client import QdrantClient
@@ -308,7 +363,8 @@ class ProcessedDatasetService:
                 client.delete_collection(collection_name)
                 logger.info(f"Deleted Qdrant collection: {collection_name}")
             except Exception as e:
-                logger.warning(f"Error deleting Qdrant collection: {e}")
+                logger.error(f"Error deleting Qdrant collection: {e}")
+                raise
 
     def _to_dataset_info(
         self, dataset: ProcessedDataset, raw_dataset_name: Optional[str] = None
