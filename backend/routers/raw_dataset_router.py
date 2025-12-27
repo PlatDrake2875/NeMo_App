@@ -12,7 +12,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
-from database_models import get_db_session
+from deps import get_db
 from schemas import (
     BatchUploadResponse,
     RawDatasetCreate,
@@ -21,6 +21,7 @@ from schemas import (
     RawFileInfo,
 )
 from services.raw_dataset import raw_dataset_service
+from utils.error_handlers import handle_service_errors, require_found
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +54,8 @@ def _safe_content_disposition(filename: str, disposition: str = "attachment") ->
     return f'{disposition}; filename="{ascii_filename}"; filename*=UTF-8\'\'{encoded_filename}'
 
 
-def get_db():
-    """Dependency to get database session."""
-    yield from get_db_session()
-
-
 @router.post("", response_model=RawDatasetInfo)
+@handle_service_errors("create raw dataset")
 async def create_raw_dataset(
     request: RawDatasetCreate,
     db: Session = Depends(get_db),
@@ -69,10 +66,7 @@ async def create_raw_dataset(
     Raw datasets hold unprocessed documents that can later be
     processed through the preprocessing pipeline.
     """
-    try:
-        return raw_dataset_service.create_dataset(db, request)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return raw_dataset_service.create_dataset(db, request)
 
 
 @router.get("", response_model=RawDatasetListResponse)
@@ -100,12 +94,11 @@ async def get_raw_dataset(
     Returns detailed information about the dataset including its files.
     """
     dataset = raw_dataset_service.get_dataset(db, dataset_id, include_files=include_files)
-    if not dataset:
-        raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
-    return dataset
+    return require_found(dataset, "Dataset", dataset_id)
 
 
 @router.delete("/{dataset_id}")
+@handle_service_errors("delete raw dataset")
 async def delete_raw_dataset(
     dataset_id: int,
     db: Session = Depends(get_db),
@@ -115,14 +108,12 @@ async def delete_raw_dataset(
 
     This is a permanent operation that cannot be undone.
     """
-    try:
-        return raw_dataset_service.delete_dataset(db, dataset_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return raw_dataset_service.delete_dataset(db, dataset_id)
 
 
 @router.post("/{dataset_id}/files", response_model=RawFileInfo)
 @limiter.limit("10/minute")
+@handle_service_errors("upload file")
 async def upload_file(
     request: Request,  # Required for rate limiter
     dataset_id: int,
@@ -136,14 +127,12 @@ async def upload_file(
     Files are stored as BLOBs in PostgreSQL with deduplication.
     Rate limited to 10 uploads per minute per IP.
     """
-    try:
-        return await raw_dataset_service.add_file(db, dataset_id, file)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return await raw_dataset_service.add_file(db, dataset_id, file)
 
 
 @router.post("/{dataset_id}/files/batch", response_model=BatchUploadResponse)
 @limiter.limit("5/minute")
+@handle_service_errors("upload files batch")
 async def upload_files_batch(
     request: Request,  # Required for rate limiter
     dataset_id: int,
@@ -156,13 +145,11 @@ async def upload_files_batch(
     Returns structured response with both successful uploads and failures.
     Rate limited to 5 batch uploads per minute per IP.
     """
-    try:
-        return await raw_dataset_service.add_files_batch(db, dataset_id, files)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return await raw_dataset_service.add_files_batch(db, dataset_id, files)
 
 
 @router.delete("/{dataset_id}/files/{file_id}")
+@handle_service_errors("delete file")
 async def delete_file(
     dataset_id: int,
     file_id: int,
@@ -173,10 +160,7 @@ async def delete_file(
 
     This is a permanent operation that cannot be undone.
     """
-    try:
-        return raw_dataset_service.delete_file(db, dataset_id, file_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return raw_dataset_service.delete_file(db, dataset_id, file_id)
 
 
 @router.get("/{dataset_id}/files/{file_id}")
@@ -189,12 +173,11 @@ async def get_file_info(
     Get information about a specific file (without content).
     """
     file_info = raw_dataset_service.get_file_info(db, dataset_id, file_id)
-    if not file_info:
-        raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
-    return file_info
+    return require_found(file_info, "File", file_id)
 
 
 @router.get("/{dataset_id}/files/{file_id}/download")
+@handle_service_errors("download file")
 async def download_file(
     dataset_id: int,
     file_id: int,
@@ -205,23 +188,21 @@ async def download_file(
 
     Returns the raw file content with appropriate content-type header.
     """
-    try:
-        content, filename, mime_type = raw_dataset_service.get_file_content(
-            db, dataset_id, file_id
-        )
-        return Response(
-            content=content,
-            media_type=mime_type,
-            headers={
-                "Content-Disposition": _safe_content_disposition(filename, "attachment"),
-                "Content-Length": str(len(content)),
-            },
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    content, filename, mime_type = raw_dataset_service.get_file_content(
+        db, dataset_id, file_id
+    )
+    return Response(
+        content=content,
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": _safe_content_disposition(filename, "attachment"),
+            "Content-Length": str(len(content)),
+        },
+    )
 
 
 @router.get("/{dataset_id}/files/{file_id}/preview")
+@handle_service_errors("preview file")
 async def preview_file(
     dataset_id: int,
     file_id: int,
@@ -232,20 +213,17 @@ async def preview_file(
 
     Returns the raw file content with inline content-disposition.
     """
-    try:
-        content, filename, mime_type = raw_dataset_service.get_file_content(
-            db, dataset_id, file_id
-        )
-        return Response(
-            content=content,
-            media_type=mime_type,
-            headers={
-                "Content-Disposition": _safe_content_disposition(filename, "inline"),
-                "Content-Length": str(len(content)),
-            },
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    content, filename, mime_type = raw_dataset_service.get_file_content(
+        db, dataset_id, file_id
+    )
+    return Response(
+        content=content,
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": _safe_content_disposition(filename, "inline"),
+            "Content-Length": str(len(content)),
+        },
+    )
 
 
 @router.post("/{dataset_id}/refresh-stats")
@@ -260,8 +238,7 @@ async def refresh_dataset_stats(
     """
     raw_dataset_service.update_dataset_stats(db, dataset_id)
     dataset = raw_dataset_service.get_dataset(db, dataset_id, include_files=False)
-    if not dataset:
-        raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
+    require_found(dataset, "Dataset", dataset_id)
     return {
         "message": "Stats refreshed",
         "total_file_count": dataset.total_file_count,

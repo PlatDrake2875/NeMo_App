@@ -9,7 +9,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from database_models import get_db_session, ProcessedDataset, RawDataset, ProcessingStatus
+from database_models import ProcessedDataset, RawDataset, ProcessingStatus
+from deps import get_db
 from schemas import (
     DatasetStatsResponse,
     ProcessedDatasetCreate,
@@ -19,18 +20,15 @@ from schemas import (
 )
 from services.processed_dataset import processed_dataset_service
 from services.preprocessing_pipeline import preprocessing_pipeline_service
+from utils.error_handlers import handle_service_errors, require_found
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/processed-datasets", tags=["processed-datasets"])
 
 
-def get_db():
-    """Dependency to get database session."""
-    yield from get_db_session()
-
-
 @router.post("", response_model=ProcessedDatasetInfo)
+@handle_service_errors("create processed dataset")
 async def create_processed_dataset(
     request: ProcessedDatasetCreate,
     start_processing: bool = Query(False, description="Start processing immediately"),
@@ -43,18 +41,15 @@ async def create_processed_dataset(
     If start_processing is True, processing will begin in the background.
     Otherwise, call POST /processed-datasets/{id}/process to start.
     """
-    try:
-        dataset = processed_dataset_service.create_dataset(db, request)
+    dataset = processed_dataset_service.create_dataset(db, request)
 
-        if start_processing and background_tasks:
-            background_tasks.add_task(
-                _run_processing,
-                dataset.id,
-            )
+    if start_processing and background_tasks:
+        background_tasks.add_task(
+            _run_processing,
+            dataset.id,
+        )
 
-        return dataset
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return dataset
 
 
 @router.get("", response_model=ProcessedDatasetListResponse)
@@ -116,12 +111,11 @@ async def get_processed_dataset(
     Returns detailed information about the dataset including preprocessing config.
     """
     dataset = processed_dataset_service.get_dataset(db, dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
-    return dataset
+    return require_found(dataset, "Dataset", dataset_id)
 
 
 @router.get("/{dataset_id}/chunks")
+@handle_service_errors("get chunks")
 async def get_chunks(
     dataset_id: int,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
@@ -134,13 +128,11 @@ async def get_chunks(
 
     Returns a list of chunks with their content and metadata.
     """
-    try:
-        return processed_dataset_service.get_chunks(db, dataset_id, page, limit, search)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return processed_dataset_service.get_chunks(db, dataset_id, page, limit, search)
 
 
 @router.delete("/{dataset_id}")
+@handle_service_errors("delete processed dataset")
 async def delete_processed_dataset(
     dataset_id: int,
     db: Session = Depends(get_db),
@@ -150,13 +142,11 @@ async def delete_processed_dataset(
 
     This is a permanent operation that cannot be undone.
     """
-    try:
-        return processed_dataset_service.delete_dataset(db, dataset_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return processed_dataset_service.delete_dataset(db, dataset_id)
 
 
 @router.get("/{dataset_id}/status", response_model=ProcessingStatusResponse)
+@handle_service_errors("get processing status")
 async def get_processing_status(
     dataset_id: int,
     db: Session = Depends(get_db),
@@ -166,10 +156,7 @@ async def get_processing_status(
 
     Returns current status, progress, and any errors.
     """
-    try:
-        return processed_dataset_service.get_processing_status(db, dataset_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return processed_dataset_service.get_processing_status(db, dataset_id)
 
 
 @router.post("/{dataset_id}/process")
@@ -184,8 +171,7 @@ async def start_processing(
     Processing runs in the background. Use GET /status to check progress.
     """
     dataset = processed_dataset_service.get_dataset(db, dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
+    require_found(dataset, "Dataset", dataset_id)
 
     if dataset.processing_status == "processing":
         raise HTTPException(status_code=400, detail="Dataset is already being processed")
@@ -215,8 +201,7 @@ async def start_processing_stream(
     completed datasets without requiring a call to /reprocess first.
     """
     dataset = processed_dataset_service.get_dataset(db, dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
+    require_found(dataset, "Dataset", dataset_id)
 
     if dataset.processing_status == "processing":
         raise HTTPException(status_code=400, detail="Dataset is already being processed")
@@ -258,8 +243,7 @@ async def reprocess_dataset(
     This will delete existing chunks and reprocess from the raw dataset.
     """
     dataset = processed_dataset_service.get_dataset(db, dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail=f"Dataset with id {dataset_id} not found")
+    require_found(dataset, "Dataset", dataset_id)
 
     if dataset.processing_status == "processing":
         raise HTTPException(status_code=400, detail="Dataset is currently being processed")

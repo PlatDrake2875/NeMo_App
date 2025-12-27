@@ -36,7 +36,7 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 QDRANT_GRPC_PORT = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Optional, for Qdrant Cloud
-QDRANT_PREFER_GRPC = os.getenv("QDRANT_PREFER_GRPC", "false").lower() == "true"
+QDRANT_PREFER_GRPC = os.getenv("QDRANT_PREFER_GRPC", "false").lower() == "true" 
 
 # Build PostgreSQL connection strings
 # SQLAlchemy-style URI for PGVector and other SQLAlchemy-based libraries

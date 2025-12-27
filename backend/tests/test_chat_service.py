@@ -8,6 +8,13 @@ import pytest
 from services.chat import ChatService
 
 
+# Helper for mocking async generators
+async def async_generator(items):
+    """Create an async generator from a list of items."""
+    for item in items:
+        yield item
+
+
 class TestChatServiceInit:
     """Tests for ChatService initialization."""
 
@@ -166,8 +173,7 @@ class TestProcessChatRequest:
     async def test_process_chat_request_uses_default_model(self, service):
         """Test that default model is used when not specified."""
         with patch.object(service, "_stream_via_vllm") as mock_stream:
-            mock_stream.return_value = AsyncMock()
-            mock_stream.return_value.__aiter__ = AsyncMock(return_value=iter([]))
+            mock_stream.return_value = async_generator([])
 
             chunks = []
             async for chunk in service.process_chat_request(query="Hello"):
@@ -181,8 +187,7 @@ class TestProcessChatRequest:
     async def test_process_chat_request_uses_specified_model(self, service):
         """Test that specified model overrides default."""
         with patch.object(service, "_stream_via_vllm") as mock_stream:
-            mock_stream.return_value = AsyncMock()
-            mock_stream.return_value.__aiter__ = AsyncMock(return_value=iter([]))
+            mock_stream.return_value = async_generator([])
 
             chunks = []
             async for chunk in service.process_chat_request(
@@ -200,8 +205,7 @@ class TestProcessChatRequest:
         service.use_guardrails = True
 
         with patch.object(service, "_stream_via_guardrails") as mock_stream:
-            mock_stream.return_value = AsyncMock()
-            mock_stream.return_value.__aiter__ = AsyncMock(return_value=iter([]))
+            mock_stream.return_value = async_generator([])
 
             chunks = []
             async for chunk in service.process_chat_request(query="Hello"):
@@ -215,8 +219,7 @@ class TestProcessChatRequest:
         service.use_guardrails = False
 
         with patch.object(service, "_stream_via_vllm") as mock_stream:
-            mock_stream.return_value = AsyncMock()
-            mock_stream.return_value.__aiter__ = AsyncMock(return_value=iter([]))
+            mock_stream.return_value = async_generator([])
 
             chunks = []
             async for chunk in service.process_chat_request(query="Hello"):

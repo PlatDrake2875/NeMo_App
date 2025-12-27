@@ -3,8 +3,11 @@ Database models for the dataset registry using SQLAlchemy.
 This module defines the database schema for storing dataset configurations and metadata.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import (
     BigInteger,
@@ -220,7 +223,7 @@ def init_database():
     """Initialize the database by creating all tables."""
     engine = get_engine()
     Base.metadata.create_all(engine)
-    print("Database tables created successfully!")
+    logger.info("Database tables created successfully")
 
 
 def get_db_session():

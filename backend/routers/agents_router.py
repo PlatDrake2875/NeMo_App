@@ -9,6 +9,8 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, HTTPException
 
+from utils.error_handlers import handle_service_errors
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -74,6 +76,7 @@ def load_agent_metadata() -> dict:
 
 
 @router.get("/metadata")
+@handle_service_errors("get agent metadata")
 async def get_agent_metadata():
     """
     Get metadata for all available NeMo Guardrails agents.
@@ -81,19 +84,12 @@ async def get_agent_metadata():
     Returns:
         Dict containing agent information including names, directories, descriptions, and icons.
     """
-    try:
-        metadata = load_agent_metadata()
-        logger.info(
-            "Successfully loaded metadata for %d agents",
-            len(metadata.get("agents", [])),
-        )
-        return metadata
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Unexpected error in get_agent_metadata: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
+    metadata = load_agent_metadata()
+    logger.info(
+        "Successfully loaded metadata for %d agents",
+        len(metadata.get("agents", [])),
+    )
+    return metadata
 
 
 @router.get("/available")
@@ -273,6 +269,7 @@ def get_all_agents():
 
 
 @router.get("")
+@handle_service_errors("list agents")
 async def list_agents():
     """
     List all available agents with their metadata.
@@ -280,15 +277,12 @@ async def list_agents():
     Returns:
         Dict containing list of agents with names, descriptions, and custom status.
     """
-    try:
-        agents = get_all_agents()
-        return {"agents": agents}
-    except Exception as e:
-        logger.error("Error listing agents: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    agents = get_all_agents()
+    return {"agents": agents}
 
 
 @router.get("/{agent_name}/config")
+@handle_service_errors("get agent config")
 async def get_agent_config(agent_name: str):
     """
     Get the configuration files for an agent.
@@ -299,54 +293,48 @@ async def get_agent_config(agent_name: str):
     Returns:
         Dict with config_yaml and config_colang content.
     """
-    try:
-        config_dir = Path(__file__).parent.parent / "guardrails_config"
+    config_dir = Path(__file__).parent.parent / "guardrails_config"
 
-        # Check custom agents first
-        agent_dir = CUSTOM_AGENTS_DIR / agent_name
-        is_custom = True
+    # Check custom agents first
+    agent_dir = CUSTOM_AGENTS_DIR / agent_name
+    is_custom = True
 
-        if not agent_dir.exists():
-            agent_dir = config_dir / agent_name
-            is_custom = False
+    if not agent_dir.exists():
+        agent_dir = config_dir / agent_name
+        is_custom = False
 
-        if not agent_dir.exists():
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    if not agent_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
 
-        config_yml_path = agent_dir / "config.yml"
-        config_co_path = agent_dir / "config.co"
+    config_yml_path = agent_dir / "config.yml"
+    config_co_path = agent_dir / "config.co"
 
-        config_yaml = ""
-        config_colang = ""
-        metadata = {}
+    config_yaml = ""
+    config_colang = ""
+    metadata = {}
 
-        if config_yml_path.exists():
-            with open(config_yml_path, encoding="utf-8") as f:
-                config_yaml = f.read()
-                try:
-                    metadata = yaml.safe_load(config_yaml) or {}
-                except Exception:
-                    pass
+    if config_yml_path.exists():
+        with open(config_yml_path, encoding="utf-8") as f:
+            config_yaml = f.read()
+            try:
+                metadata = yaml.safe_load(config_yaml) or {}
+            except Exception:
+                pass
 
-        if config_co_path.exists():
-            with open(config_co_path, encoding="utf-8") as f:
-                config_colang = f.read()
+    if config_co_path.exists():
+        with open(config_co_path, encoding="utf-8") as f:
+            config_colang = f.read()
 
-        return {
-            "config_yaml": config_yaml,
-            "config_colang": config_colang,
-            "metadata": metadata,
-            "is_custom": is_custom,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error getting config for agent '%s': %s", agent_name, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "config_yaml": config_yaml,
+        "config_colang": config_colang,
+        "metadata": metadata,
+        "is_custom": is_custom,
+    }
 
 
 @router.put("/{agent_name}/config")
+@handle_service_errors("save agent config")
 async def save_agent_config(agent_name: str, config: dict):
     """
     Save the configuration files for a custom agent.
@@ -358,43 +346,37 @@ async def save_agent_config(agent_name: str, config: dict):
     Returns:
         Success message.
     """
+    # Only allow saving custom agents
+    agent_dir = CUSTOM_AGENTS_DIR / agent_name
+
+    if not agent_dir.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="Can only edit custom agents. Clone this agent first."
+        )
+
+    config_yaml = config.get("config_yaml", "")
+    config_colang = config.get("config_colang", "")
+
+    # Validate YAML before saving
     try:
-        # Only allow saving custom agents
-        agent_dir = CUSTOM_AGENTS_DIR / agent_name
+        yaml.safe_load(config_yaml)
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {str(e)}")
 
-        if not agent_dir.exists():
-            raise HTTPException(
-                status_code=400,
-                detail="Can only edit custom agents. Clone this agent first."
-            )
+    # Save files
+    with open(agent_dir / "config.yml", "w", encoding="utf-8") as f:
+        f.write(config_yaml)
 
-        config_yaml = config.get("config_yaml", "")
-        config_colang = config.get("config_colang", "")
+    with open(agent_dir / "config.co", "w", encoding="utf-8") as f:
+        f.write(config_colang)
 
-        # Validate YAML before saving
-        try:
-            yaml.safe_load(config_yaml)
-        except yaml.YAMLError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid YAML: {str(e)}")
-
-        # Save files
-        with open(agent_dir / "config.yml", "w", encoding="utf-8") as f:
-            f.write(config_yaml)
-
-        with open(agent_dir / "config.co", "w", encoding="utf-8") as f:
-            f.write(config_colang)
-
-        logger.info("Saved config for agent '%s'", agent_name)
-        return {"message": "Configuration saved successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error saving config for agent '%s': %s", agent_name, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    logger.info("Saved config for agent '%s'", agent_name)
+    return {"message": "Configuration saved successfully"}
 
 
 @router.post("")
+@handle_service_errors("create agent")
 async def create_agent(agent_data: dict):
     """
     Create a new custom agent.
@@ -405,45 +387,44 @@ async def create_agent(agent_data: dict):
     Returns:
         Success message with agent name.
     """
-    try:
-        name = agent_data.get("name", "").strip()
-        description = agent_data.get("description", "")
-        base_agent = agent_data.get("base_agent")
+    name = agent_data.get("name", "").strip()
+    description = agent_data.get("description", "")
+    base_agent = agent_data.get("base_agent")
 
-        if not name:
-            raise HTTPException(status_code=400, detail="Agent name is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="Agent name is required")
 
-        # Sanitize name
-        safe_name = name.lower().replace(" ", "_")
+    # Sanitize name
+    safe_name = name.lower().replace(" ", "_")
 
-        # Create custom agents directory if needed
-        CUSTOM_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Create custom agents directory if needed
+    CUSTOM_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        agent_dir = CUSTOM_AGENTS_DIR / safe_name
+    agent_dir = CUSTOM_AGENTS_DIR / safe_name
 
-        if agent_dir.exists():
-            raise HTTPException(status_code=400, detail="Agent already exists")
+    if agent_dir.exists():
+        raise HTTPException(status_code=400, detail="Agent already exists")
 
-        agent_dir.mkdir(parents=True)
+    agent_dir.mkdir(parents=True)
 
-        # If cloning from base agent
-        if base_agent:
-            config_dir = Path(__file__).parent.parent / "guardrails_config"
-            base_dir = config_dir / base_agent
+    # If cloning from base agent
+    if base_agent:
+        config_dir = Path(__file__).parent.parent / "guardrails_config"
+        base_dir = config_dir / base_agent
 
-            if not base_dir.exists():
-                base_dir = CUSTOM_AGENTS_DIR / base_agent
+        if not base_dir.exists():
+            base_dir = CUSTOM_AGENTS_DIR / base_agent
 
-            if base_dir.exists():
-                # Copy config files
-                import shutil
-                for file in ["config.yml", "config.co"]:
-                    src = base_dir / file
-                    if src.exists():
-                        shutil.copy(src, agent_dir / file)
-        else:
-            # Create default config files
-            default_yaml = f"""# Configuration for {name}
+        if base_dir.exists():
+            # Copy config files
+            import shutil
+            for file in ["config.yml", "config.co"]:
+                src = base_dir / file
+                if src.exists():
+                    shutil.copy(src, agent_dir / file)
+    else:
+        # Create default config files
+        default_yaml = f"""# Configuration for {name}
 # Description: {description}
 
 models:
@@ -457,7 +438,7 @@ instructions:
       You are a helpful AI assistant named {name}.
       {description}
 """
-            default_colang = f"""# Colang configuration for {name}
+        default_colang = f"""# Colang configuration for {name}
 
 define user greeting
   "hello"
@@ -472,23 +453,18 @@ define flow greeting
   bot greeting
 """
 
-            with open(agent_dir / "config.yml", "w", encoding="utf-8") as f:
-                f.write(default_yaml)
+        with open(agent_dir / "config.yml", "w", encoding="utf-8") as f:
+            f.write(default_yaml)
 
-            with open(agent_dir / "config.co", "w", encoding="utf-8") as f:
-                f.write(default_colang)
+        with open(agent_dir / "config.co", "w", encoding="utf-8") as f:
+            f.write(default_colang)
 
-        logger.info("Created new agent '%s'", safe_name)
-        return {"message": "Agent created successfully", "name": safe_name}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error creating agent: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    logger.info("Created new agent '%s'", safe_name)
+    return {"message": "Agent created successfully", "name": safe_name}
 
 
 @router.delete("/{agent_name}")
+@handle_service_errors("delete agent")
 async def delete_agent(agent_name: str):
     """
     Delete a custom agent.
@@ -499,27 +475,20 @@ async def delete_agent(agent_name: str):
     Returns:
         Success message.
     """
-    try:
-        agent_dir = CUSTOM_AGENTS_DIR / agent_name
+    agent_dir = CUSTOM_AGENTS_DIR / agent_name
 
-        if not agent_dir.exists():
-            raise HTTPException(
-                status_code=404,
-                detail="Agent not found or cannot delete built-in agents"
-            )
+    if not agent_dir.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Agent not found or cannot delete built-in agents"
+        )
 
-        # Delete the directory
-        import shutil
-        shutil.rmtree(agent_dir)
+    # Delete the directory
+    import shutil
+    shutil.rmtree(agent_dir)
 
-        logger.info("Deleted agent '%s'", agent_name)
-        return {"message": "Agent deleted successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error deleting agent '%s': %s", agent_name, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    logger.info("Deleted agent '%s'", agent_name)
+    return {"message": "Agent deleted successfully"}
 
 
 @router.post("/{agent_name}/validate-content")
@@ -564,6 +533,7 @@ async def validate_agent_content(agent_name: str, content: dict):
 
 
 @router.post("/{agent_name}/test")
+@handle_service_errors("test agent")
 async def test_agent(agent_name: str, test_data: dict):
     """
     Test an agent with a sample input.
@@ -575,32 +545,25 @@ async def test_agent(agent_name: str, test_data: dict):
     Returns:
         Test result with output and triggered rails.
     """
-    try:
-        import time
-        start_time = time.time()
+    import time
+    start_time = time.time()
 
-        input_text = test_data.get("input", "").strip()
-        if not input_text:
-            raise HTTPException(status_code=400, detail="Input is required")
+    input_text = test_data.get("input", "").strip()
+    if not input_text:
+        raise HTTPException(status_code=400, detail="Input is required")
 
-        # For now, return a mock result
-        # In a real implementation, this would run the guardrails
-        execution_time = int((time.time() - start_time) * 1000)
+    # For now, return a mock result
+    # In a real implementation, this would run the guardrails
+    execution_time = int((time.time() - start_time) * 1000)
 
-        return {
-            "blocked": False,
-            "modified": False,
-            "output": f"Test response for: {input_text}",
-            "triggered_rails": [],
-            "execution_time": execution_time,
-            "details": {
-                "agent": agent_name,
-                "input": input_text,
-            }
+    return {
+        "blocked": False,
+        "modified": False,
+        "output": f"Test response for: {input_text}",
+        "triggered_rails": [],
+        "execution_time": execution_time,
+        "details": {
+            "agent": agent_name,
+            "input": input_text,
         }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error testing agent '%s': %s", agent_name, e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    }

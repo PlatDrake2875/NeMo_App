@@ -5,6 +5,7 @@ Centralizes SSE chunk creation to eliminate duplication across services.
 
 import json
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Optional
 
@@ -105,4 +106,6 @@ class SSEFormatter:
 
 def generate_response_id(prefix: str = "chatcmpl") -> str:
     """Generate a unique response ID for chat completions."""
-    return f"{prefix}-{int(time.time() * 1000)}"
+    timestamp = int(time.time() * 1000)
+    unique_suffix = uuid.uuid4().hex[:8]
+    return f"{prefix}-{timestamp}-{unique_suffix}"
