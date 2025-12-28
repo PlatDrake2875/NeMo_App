@@ -35,7 +35,23 @@ export function PreprocessingPipeline() {
   // Cleaning configuration
   const [cleaningEnabled, setCleaningEnabled] = useState(false);
   const [removeHeaders, setRemoveHeaders] = useState(false);
+  const [removePageNumbers, setRemovePageNumbers] = useState(false);
   const [normalizeWhitespace, setNormalizeWhitespace] = useState(true);
+  // New cleaning options
+  const [removeHtmlMarkup, setRemoveHtmlMarkup] = useState(false);
+  const [removeUrls, setRemoveUrls] = useState(false);
+  const [removeCitations, setRemoveCitations] = useState(false);
+  const [removeEmails, setRemoveEmails] = useState(false);
+  const [removePhoneNumbers, setRemovePhoneNumbers] = useState(false);
+  const [normalizeUnicode, setNormalizeUnicode] = useState(false);
+  const [preserveCodeBlocks, setPreserveCodeBlocks] = useState(true);
+
+  // Lightweight Metadata configuration (no LLM)
+  const [lightweightMetadataEnabled, setLightweightMetadataEnabled] = useState(false);
+  const [extractRakeKeywords, setExtractRakeKeywords] = useState(false);
+  const [extractStatistics, setExtractStatistics] = useState(false);
+  const [detectLanguage, setDetectLanguage] = useState(false);
+  const [extractSpacyEntities, setExtractSpacyEntities] = useState(false);
 
   // LLM Metadata configuration
   const [metadataEnabled, setMetadataEnabled] = useState(false);
@@ -106,7 +122,22 @@ export function PreprocessingPipeline() {
               cleaning: {
                 enabled: cleaningEnabled,
                 remove_headers_footers: removeHeaders,
+                remove_page_numbers: removePageNumbers,
                 normalize_whitespace: normalizeWhitespace,
+                remove_html_markup: removeHtmlMarkup,
+                remove_urls: removeUrls,
+                remove_citations: removeCitations,
+                remove_emails: removeEmails,
+                remove_phone_numbers: removePhoneNumbers,
+                normalize_unicode: normalizeUnicode,
+                preserve_code_blocks: preserveCodeBlocks,
+              },
+              lightweight_metadata: {
+                enabled: lightweightMetadataEnabled,
+                extract_rake_keywords: extractRakeKeywords,
+                extract_statistics: extractStatistics,
+                detect_language: detectLanguage,
+                extract_spacy_entities: extractSpacyEntities,
               },
               llm_metadata: {
                 enabled: metadataEnabled,
@@ -200,16 +231,87 @@ export function PreprocessingPipeline() {
           </CardHeader>
           {cleaningEnabled && (
             <CardContent className="space-y-4">
+              {/* Original options */}
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Document Structure</p>
               <div className="flex items-center justify-between">
                 <Label>Remove headers/footers</Label>
                 <Switch checked={removeHeaders} onCheckedChange={setRemoveHeaders} />
               </div>
               <div className="flex items-center justify-between">
+                <Label>Remove page numbers</Label>
+                <Switch checked={removePageNumbers} onCheckedChange={setRemovePageNumbers} />
+              </div>
+              <div className="flex items-center justify-between">
                 <Label>Normalize whitespace</Label>
-                <Switch
-                  checked={normalizeWhitespace}
-                  onCheckedChange={setNormalizeWhitespace}
-                />
+                <Switch checked={normalizeWhitespace} onCheckedChange={setNormalizeWhitespace} />
+              </div>
+
+              {/* Content removal */}
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide pt-2">Content Removal</p>
+              <div className="flex items-center justify-between">
+                <Label>Remove HTML/Markup</Label>
+                <Switch checked={removeHtmlMarkup} onCheckedChange={setRemoveHtmlMarkup} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Remove URLs</Label>
+                <Switch checked={removeUrls} onCheckedChange={setRemoveUrls} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Remove citations</Label>
+                <Switch checked={removeCitations} onCheckedChange={setRemoveCitations} />
+              </div>
+
+              {/* Privacy/PII */}
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide pt-2">Privacy</p>
+              <div className="flex items-center justify-between">
+                <Label>Remove email addresses</Label>
+                <Switch checked={removeEmails} onCheckedChange={setRemoveEmails} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Remove phone numbers</Label>
+                <Switch checked={removePhoneNumbers} onCheckedChange={setRemovePhoneNumbers} />
+              </div>
+
+              {/* Formatting */}
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide pt-2">Formatting</p>
+              <div className="flex items-center justify-between">
+                <Label>Normalize Unicode</Label>
+                <Switch checked={normalizeUnicode} onCheckedChange={setNormalizeUnicode} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Preserve code blocks</Label>
+                <Switch checked={preserveCodeBlocks} onCheckedChange={setPreserveCodeBlocks} />
+              </div>
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Lightweight Metadata (Optional) */}
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>2. Quick Metadata (Optional)</CardTitle>
+              <CardDescription>Fast metadata extraction (no LLM required)</CardDescription>
+            </div>
+            <Switch checked={lightweightMetadataEnabled} onCheckedChange={setLightweightMetadataEnabled} />
+          </CardHeader>
+          {lightweightMetadataEnabled && (
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>RAKE Keywords</Label>
+                <Switch checked={extractRakeKeywords} onCheckedChange={setExtractRakeKeywords} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Document statistics</Label>
+                <Switch checked={extractStatistics} onCheckedChange={setExtractStatistics} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Language detection</Label>
+                <Switch checked={detectLanguage} onCheckedChange={setDetectLanguage} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Named entities (spaCy)</Label>
+                <Switch checked={extractSpacyEntities} onCheckedChange={setExtractSpacyEntities} />
               </div>
             </CardContent>
           )}
@@ -219,8 +321,8 @@ export function PreprocessingPipeline() {
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div>
-              <CardTitle>2. Metadata Extraction (Optional)</CardTitle>
-              <CardDescription>Extract metadata using LLM</CardDescription>
+              <CardTitle>3. LLM Metadata (Optional)</CardTitle>
+              <CardDescription>Extract metadata using LLM (slower, more accurate)</CardDescription>
             </div>
             <Switch checked={metadataEnabled} onCheckedChange={setMetadataEnabled} />
           </CardHeader>
@@ -240,10 +342,7 @@ export function PreprocessingPipeline() {
               </div>
               <div className="flex items-center justify-between">
                 <Label>Extract categories</Label>
-                <Switch
-                  checked={extractCategories}
-                  onCheckedChange={setExtractCategories}
-                />
+                <Switch checked={extractCategories} onCheckedChange={setExtractCategories} />
               </div>
             </CardContent>
           )}
@@ -252,7 +351,7 @@ export function PreprocessingPipeline() {
         {/* Chunking (Required) */}
         <Card>
           <CardHeader>
-            <CardTitle>3. Chunking (Required)</CardTitle>
+            <CardTitle>4. Chunking (Required)</CardTitle>
             <CardDescription>Configure document chunking strategy</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -313,7 +412,7 @@ export function PreprocessingPipeline() {
         {/* Vector Database (Required) */}
         <Card>
           <CardHeader>
-            <CardTitle>4. Vector Database (Required)</CardTitle>
+            <CardTitle>5. Vector Database (Required)</CardTitle>
             <CardDescription>Configure indexing settings</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

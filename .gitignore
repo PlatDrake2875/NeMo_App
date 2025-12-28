@@ -228,8 +228,9 @@ dist-ssr/
 *.jsonl
 *.parquet
 data/
-datasets/
+/datasets/
 corpus/
+!backend/schemas/datasets/
 
 # Vector databases
 chromadb/
