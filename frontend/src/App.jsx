@@ -357,7 +357,6 @@ function App() {
 						<RAGBenchmarkHub
 							onBack={handleBackToChat}
 							isDarkMode={isDarkMode}
-							toggleTheme={toggleTheme}
 						/>
 					) : (
 						<GuardrailsEditor onBack={handleBackToChat} isDarkMode={isDarkMode} />
