@@ -399,7 +399,7 @@ class PreprocessingPipelineService:
         # Get vectorstore from factory
         return VectorStoreFactory.create_vectorstore(
             backend=processed_ds.vector_backend,
-            embeddings=embeddings,
+            embedding_function=embeddings,
             collection_name=processed_ds.collection_name,
         )
 
