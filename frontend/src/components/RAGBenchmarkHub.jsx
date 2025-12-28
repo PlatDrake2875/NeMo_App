@@ -69,22 +69,16 @@ export function RAGBenchmarkHub({ onBack, isDarkMode }) {
         <Select value={currentView} onValueChange={setCurrentView}>
           <SelectTrigger className="w-[220px]">
             <div className="flex items-center gap-2">
-              <CurrentIcon className="h-4 w-4" />
-              <SelectValue />
+              <CurrentIcon className="h-4 w-4 shrink-0" />
+              <SelectValue placeholder="Select view" />
             </div>
           </SelectTrigger>
           <SelectContent>
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <SelectItem key={item.id} value={item.id}>
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </div>
-                </SelectItem>
-              );
-            })}
+            {navItems.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                {item.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
