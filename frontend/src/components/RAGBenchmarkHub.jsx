@@ -66,21 +66,21 @@ export function RAGBenchmarkHub({ onBack, isDarkMode }) {
           <ArrowLeft className="h-5 w-5" />
         </Button>
 
-        <Select value={currentView} onValueChange={setCurrentView}>
-          <SelectTrigger className="w-[220px]">
-            <div className="flex items-center gap-2">
-              <CurrentIcon className="h-4 w-4 shrink-0" />
+        <div className="flex items-center gap-2 border rounded-md px-3 py-2 bg-background">
+          <CurrentIcon className="h-4 w-4 shrink-0" />
+          <Select value={currentView} onValueChange={setCurrentView}>
+            <SelectTrigger className="w-[180px] border-0 p-0 h-auto focus:ring-0">
               <SelectValue placeholder="Select view" />
-            </div>
-          </SelectTrigger>
-          <SelectContent>
-            {navItems.map((item) => (
-              <SelectItem key={item.id} value={item.id}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            </SelectTrigger>
+            <SelectContent>
+              {navItems.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         <span className="text-sm text-muted-foreground hidden sm:inline">
           RAG Benchmark Hub
