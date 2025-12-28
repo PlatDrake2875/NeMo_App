@@ -9,7 +9,7 @@ import { PreprocessingPipeline } from "./rag-benchmark-hub/preprocessing/Preproc
 import { ProcessedDatasetEditor } from "./rag-benchmark-hub/processed-datasets/ProcessedDatasetEditor";
 import { HuggingFaceImporter } from "./rag-benchmark-hub/huggingface/HuggingFaceImporter";
 
-export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
+export function RAGBenchmarkHub({ onBack }) {
   const [currentView, setCurrentView] = useState("dashboard");
 
   const renderView = () => {
@@ -17,7 +17,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
       case "dashboard":
         return <DatasetDashboard onNavigate={setCurrentView} />;
       case "raw":
-        return <RawDatasetManager isDarkMode={isDarkMode} />;
+        return <RawDatasetManager />;
       case "pipeline":
         return <PreprocessingPipeline />;
       case "processed":
@@ -36,8 +36,6 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
         currentView={currentView}
         onViewChange={setCurrentView}
         onBack={onBack}
-        isDarkMode={isDarkMode}
-        toggleTheme={toggleTheme}
       />
 
       {/* Main Content */}
@@ -72,8 +70,6 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
 
 RAGBenchmarkHub.propTypes = {
   onBack: PropTypes.func.isRequired,
-  isDarkMode: PropTypes.bool,
-  toggleTheme: PropTypes.func,
 };
 
 export default RAGBenchmarkHub;

@@ -11,8 +11,6 @@ import {
 } from "./ui/dropdown-menu";
 import { Separator } from "./ui/separator";
 import {
-  Moon,
-  Sun,
   Trash2,
   Download,
   MoreVertical,
@@ -38,8 +36,6 @@ export function Header({
   clearChatHistory,
   onImportConversation,
   disabled,
-  isDarkMode,
-  toggleTheme,
   availableModels,
   selectedModel,
   onModelChange,
@@ -186,17 +182,6 @@ export function Header({
             <Button
               variant="ghost"
               size="icon"
-              onClick={toggleTheme}
-              aria-label={`Switch to ${isDarkMode ? "light" : "dark"} mode`}
-              title={`Switch to ${isDarkMode ? "Light" : "Dark"} Mode`}
-              disabled={disabled}
-            >
-              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
               onClick={clearChatHistory}
               disabled={disabled || isHistoryEmpty}
               aria-label="Clear current chat history"
@@ -254,14 +239,6 @@ export function Header({
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={toggleTheme} disabled={disabled}>
-                {isDarkMode ? (
-                  <Sun className="mr-2 h-4 w-4" />
-                ) : (
-                  <Moon className="mr-2 h-4 w-4" />
-                )}
-                {isDarkMode ? "Light Mode" : "Dark Mode"}
-              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={clearChatHistory}
                 disabled={disabled || isHistoryEmpty}

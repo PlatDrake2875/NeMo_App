@@ -336,8 +336,6 @@ function App() {
 							onImportConversation={handleImportConversation}
 							isSubmitting={isChatSubmitting}
 							onStopGeneration={stopGeneration}
-							isDarkMode={isDarkMode}
-							toggleTheme={toggleTheme}
 							availableModels={availableModels}
 							selectedModel={selectedModel}
 							onModelChange={handleModelChange}
@@ -354,13 +352,9 @@ function App() {
 							onRegenerateMessage={handleRegenerateMessageWithModel}
 						/>
 					) : currentView === "rag-hub" ? (
-						<RAGBenchmarkHub
-							onBack={handleBackToChat}
-							isDarkMode={isDarkMode}
-							toggleTheme={toggleTheme}
-						/>
+						<RAGBenchmarkHub onBack={handleBackToChat} />
 					) : (
-						<GuardrailsEditor onBack={handleBackToChat} isDarkMode={isDarkMode} />
+						<GuardrailsEditor onBack={handleBackToChat} />
 					)}
 				</div>
 

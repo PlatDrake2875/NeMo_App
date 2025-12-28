@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import PropTypes from "prop-types";
 import { Button } from "../../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../ui/card";
 import { Input } from "../../ui/input";
@@ -37,7 +36,7 @@ import { cn } from "../../../lib/utils";
 import { API_BASE_URL } from "../../../lib/api-config";
 import { DocumentPreviewModal } from "../shared/DocumentPreviewModal";
 
-export function RawDatasetManager({ isDarkMode }) {
+export function RawDatasetManager() {
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -518,7 +517,6 @@ export function RawDatasetManager({ isDarkMode }) {
         <DocumentPreviewModal
           file={previewFile}
           onClose={() => setPreviewFile(null)}
-          isDarkMode={isDarkMode}
         />
       )}
 
@@ -562,9 +560,5 @@ export function RawDatasetManager({ isDarkMode }) {
     </div>
   );
 }
-
-RawDatasetManager.propTypes = {
-  isDarkMode: PropTypes.bool,
-};
 
 export default RawDatasetManager;

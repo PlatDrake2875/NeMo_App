@@ -8,8 +8,6 @@ import {
   FolderOpen,
   GitBranch,
   LayoutDashboard,
-  Moon,
-  Sun,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -25,8 +23,6 @@ export function RAGHubSidebar({
   currentView,
   onViewChange,
   onBack,
-  isDarkMode,
-  toggleTheme,
 }) {
   return (
     <aside className="hidden md:flex w-56 border-r bg-muted/30 flex-col h-full">
@@ -67,29 +63,6 @@ export function RAGHubSidebar({
         })}
       </nav>
 
-      <Separator />
-
-      {/* Theme Toggle */}
-      <div className="p-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleTheme}
-          className="w-full justify-start gap-2"
-        >
-          {isDarkMode ? (
-            <>
-              <Sun className="h-4 w-4" />
-              Light Mode
-            </>
-          ) : (
-            <>
-              <Moon className="h-4 w-4" />
-              Dark Mode
-            </>
-          )}
-        </Button>
-      </div>
     </aside>
   );
 }
@@ -98,8 +71,6 @@ RAGHubSidebar.propTypes = {
   currentView: PropTypes.string.isRequired,
   onViewChange: PropTypes.func.isRequired,
   onBack: PropTypes.func.isRequired,
-  isDarkMode: PropTypes.bool,
-  toggleTheme: PropTypes.func,
 };
 
 export default RAGHubSidebar;
