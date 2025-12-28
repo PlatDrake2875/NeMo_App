@@ -50,9 +50,6 @@ export function RAGBenchmarkHub({ onBack, isDarkMode }) {
     }
   };
 
-  const currentNavItem = navItems.find((item) => item.id === currentView);
-  const CurrentIcon = currentNavItem?.icon || LayoutDashboard;
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header with navigation dropdown */}
@@ -66,21 +63,24 @@ export function RAGBenchmarkHub({ onBack, isDarkMode }) {
           <ArrowLeft className="h-5 w-5" />
         </Button>
 
-        <div className="flex items-center gap-2 border rounded-md px-3 py-2 bg-background">
-          <CurrentIcon className="h-4 w-4 shrink-0" />
-          <Select value={currentView} onValueChange={setCurrentView}>
-            <SelectTrigger className="w-[180px] border-0 p-0 h-auto focus:ring-0">
-              <SelectValue placeholder="Select view" />
-            </SelectTrigger>
-            <SelectContent>
-              {navItems.map((item) => (
+        <Select value={currentView} onValueChange={setCurrentView}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Select view" />
+          </SelectTrigger>
+          <SelectContent>
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
                 <SelectItem key={item.id} value={item.id}>
-                  {item.label}
+                  <span className="flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </span>
                 </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+              );
+            })}
+          </SelectContent>
+        </Select>
 
         <span className="text-sm text-muted-foreground hidden sm:inline">
           RAG Benchmark Hub
