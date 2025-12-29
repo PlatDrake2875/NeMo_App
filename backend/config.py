@@ -64,6 +64,36 @@ VLLM_MODEL_FOR_AUTOMATION = os.getenv(
 # Set to True to enable RAG features, False to disable globally
 RAG_ENABLED = os.getenv("RAG_ENABLED", "False").lower() == "true"
 
+# --- ColBERT Configuration ---
+# ColBERT provides late-interaction retrieval for improved accuracy.
+# It can be used in two modes:
+# 1. RERANKER: Rerank PGVector results (recommended, faster)
+# 2. STANDALONE: Use ColBERT as the primary retriever (slower but more accurate)
+
+# Enable ColBERT reranking in the RAG pipeline
+# When True, PGVector retrieves candidates, then ColBERT reranks them
+COLBERT_RERANK_ENABLED = os.getenv("COLBERT_RERANK_ENABLED", "False").lower() == "true"
+
+# ColBERT model to use (HuggingFace model ID)
+# Default: colbert-ir/colbertv2.0 (standard pretrained ColBERT model)
+COLBERT_MODEL_NAME = os.getenv("COLBERT_MODEL_NAME", "colbert-ir/colbertv2.0")
+
+# Number of candidates to retrieve from PGVector before ColBERT reranking
+# Higher = more accurate but slower. Recommended: 20-50
+COLBERT_FIRST_STAGE_K = int(os.getenv("COLBERT_FIRST_STAGE_K", "20"))
+
+# Number of final results after ColBERT reranking
+# This is what gets passed to the LLM as context
+COLBERT_FINAL_K = int(os.getenv("COLBERT_FINAL_K", "5"))
+
+# Directory to store ColBERT indices
+# Each dataset in the RAG Benchmark Hub can have its own ColBERT index
+COLBERT_INDEX_ROOT = os.getenv("COLBERT_INDEX_ROOT", ".ragatouille")
+
+# GPU configuration for ColBERT
+# -1 = use all available GPUs, 0 = CPU only, N = use N GPUs
+COLBERT_N_GPU = int(os.getenv("COLBERT_N_GPU", "-1"))
+
 # --- Prompt Templates ---
 # Template for the basic RAG chain
 RAG_PROMPT_TEMPLATE_STR = """SYSTEM: You are a helpful assistant. Use the following context to answer the question. If the context doesn't contain the answer, state that you don't have enough information. Do not make up information.

@@ -1,3 +1,6 @@
+# === Local Development Overrides ===
+docker-compose.override.yml
+
 # === Python ===
 __pycache__/
 *.py[cod]
