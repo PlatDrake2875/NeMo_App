@@ -3,7 +3,7 @@
 RAG Components - Central management of all Retrieval-Augmented Generation components.
 
 This module provides a singleton pattern for managing:
-1. PGVector - First-stage retrieval (fast, approximate nearest neighbor)
+1. PGVector/Qdrant - First-stage retrieval (fast, approximate nearest neighbor)
 2. ColBERT - Second-stage reranking (accurate, late interaction)
 3. Embeddings - HuggingFace sentence transformers
 4. LLM - vLLM for text generation
@@ -12,19 +12,17 @@ This module provides a singleton pattern for managing:
 The two-stage retrieval architecture:
 ------------------------------------
 When COLBERT_RERANK_ENABLED=True:
-    Query → PGVector (retrieve 20 candidates) → ColBERT (rerank to top 5) → LLM
+    Query → VectorStore (retrieve 20 candidates) → ColBERT (rerank to top 5) → LLM
 
 When COLBERT_RERANK_ENABLED=False:
-    Query → PGVector (retrieve 5 candidates) → LLM
+    Query → VectorStore (retrieve 5 candidates) → LLM
 
-This approach balances speed (PGVector) with accuracy (ColBERT).
+This approach balances speed (VectorStore) with accuracy (ColBERT).
 """
 
 from typing import Any, List, Optional, Tuple
 
 from fastapi import HTTPException
-from langchain_postgres import PGVector
-from langchain_postgres.vectorstores import PGVector as LangchainPGVector
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -32,7 +30,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 
 from config import (
-    POSTGRES_CONNECTION_STRING,
     POSTGRES_LIBPQ_CONNECTION,
     COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
@@ -40,6 +37,7 @@ from config import (
     RAG_ENABLED,
     RAG_PROMPT_TEMPLATE_STR,
     SIMPLE_PROMPT_TEMPLATE_STR,
+    VECTOR_STORE_BACKEND,
     VLLM_BASE_URL,
     VLLM_MODEL,
     VLLM_MODEL_FOR_AUTOMATION,
@@ -52,6 +50,7 @@ from config import (
     COLBERT_N_GPU,
     logger,
 )
+from vectorstore_factory import create_vectorstore
 
 # Import ColBERT retriever (optional - graceful degradation if not available)
 try:
@@ -76,7 +75,7 @@ class RAGComponents:
     -----------
     - pg_connection: PostgreSQL connection for health checks
     - embedding_function: HuggingFace embeddings for PGVector
-    - vectorstore: PGVector for first-stage retrieval
+    - vectorstore: PGVector or Qdrant for first-stage retrieval
     - retriever: LangChain retriever wrapper for vectorstore
     - colbert_retriever: ColBERT for second-stage reranking (optional)
     - vllm_chat_for_rag: LLM for generating responses
@@ -96,13 +95,14 @@ class RAGComponents:
             # Existing components
             self.pg_connection: Optional[Any] = None
             self.embedding_function: Optional[HuggingFaceEmbeddings] = None
-            self.vectorstore: Optional[LangchainPGVector] = None
+            self.vectorstore: Optional[Any] = None  # Can be PGVector or QdrantVectorStore
             self.retriever: Optional[Any] = None
             self.vllm_chat_for_rag: Optional[ChatOpenAI] = None
             self.vllm_chat_for_automation: Optional[ChatOpenAI] = None
             self.rag_prompt_template_obj: Optional[ChatPromptTemplate] = None
             self.simple_prompt_template_obj: Optional[ChatPromptTemplate] = None
             self.rag_context_prefix_prompt_template_obj: Optional[ChatPromptTemplate] = None
+            self.vectorstore_backend: str = VECTOR_STORE_BACKEND
 
             # ColBERT components (new)
             self.colbert_retriever: Optional[ColBERTRetriever] = None
@@ -117,20 +117,21 @@ class RAGComponents:
         This method is called once during application startup.
         It sets up the entire RAG pipeline including optional ColBERT reranking.
         """
-        # 1. Embedding Function (used by PGVector for dense retrieval)
+        # 1. Embedding Function (used by vectorstore for dense retrieval)
         self.embedding_function = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
         logger.info(f"Initialized embedding function: {EMBEDDING_MODEL_NAME}")
 
-        # 2. PostgreSQL PGVector Vectorstore (first-stage retrieval)
+        # 2. Vector Store (PGVector or Qdrant based on configuration)
         if self.embedding_function:
             try:
-                self.vectorstore = PGVector(
-                    connection=POSTGRES_CONNECTION_STRING,
-                    embeddings=self.embedding_function,
+                # Use factory to create the appropriate vectorstore
+                self.vectorstore = create_vectorstore(
+                    embedding_function=self.embedding_function,
                     collection_name=COLLECTION_NAME,
-                    use_jsonb=True,
+                    backend=VECTOR_STORE_BACKEND,
                 )
-                logger.info(f"Initialized PGVector with collection: {COLLECTION_NAME}")
+
+                logger.info(f"Initialized {VECTOR_STORE_BACKEND} vectorstore with collection: {COLLECTION_NAME}")
 
                 # Configure retriever based on whether ColBERT reranking is enabled
                 # If ColBERT is enabled, retrieve more candidates for reranking
@@ -138,13 +139,15 @@ class RAGComponents:
                 self.retriever = self.vectorstore.as_retriever(
                     search_kwargs={"k": first_stage_k}
                 )
-                logger.info(f"PGVector retriever configured with k={first_stage_k}")
+                logger.info(f"Retriever configured with k={first_stage_k}")
 
-                self.pg_connection = POSTGRES_LIBPQ_CONNECTION
+                # Store pg_connection for health checks (only relevant for pgvector)
+                if VECTOR_STORE_BACKEND == "pgvector":
+                    self.pg_connection = POSTGRES_LIBPQ_CONNECTION
 
             except Exception as e:
                 logger.critical(
-                    "Failed to initialize PostgreSQL PGVector/vectorstore/retriever: %s",
+                    "Failed to initialize vectorstore/retriever: %s",
                     e,
                     exc_info=True,
                 )
@@ -232,10 +235,11 @@ class RAGComponents:
         logger.info("=" * 60)
         logger.info("RAG Configuration Summary:")
         logger.info(f"  RAG Enabled: {RAG_ENABLED}")
-        logger.info(f"  PGVector: {'OK' if self.vectorstore else 'NOT AVAILABLE'}")
+        logger.info(f"  Vector Store Backend: {VECTOR_STORE_BACKEND}")
+        logger.info(f"  VectorStore: {'OK' if self.vectorstore else 'NOT AVAILABLE'}")
         logger.info(f"  ColBERT Reranking: {'ENABLED' if self.colbert_rerank_enabled else 'DISABLED'}")
         if self.colbert_rerank_enabled:
-            logger.info(f"    - First stage (PGVector): k={COLBERT_FIRST_STAGE_K}")
+            logger.info(f"    - First stage (VectorStore): k={COLBERT_FIRST_STAGE_K}")
             logger.info(f"    - Final (after ColBERT): k={COLBERT_FINAL_K}")
         logger.info(f"  LLM Model: {VLLM_MODEL}")
         logger.info("=" * 60)
@@ -247,25 +251,25 @@ class RAGComponents:
         final_k: Optional[int] = None
     ) -> List[Document]:
         """
-        Two-stage retrieval: PGVector candidates → ColBERT reranking.
+        Two-stage retrieval: VectorStore candidates → ColBERT reranking.
 
         This is the recommended way to retrieve documents when ColBERT is enabled.
-        It provides better accuracy than PGVector alone while maintaining speed.
+        It provides better accuracy than VectorStore alone while maintaining speed.
 
         Args:
             query: The user's search query
-            first_stage_k: Number of PGVector candidates (default: config value)
+            first_stage_k: Number of VectorStore candidates (default: config value)
             final_k: Number of results after reranking (default: config value)
 
         Returns:
             List of reranked Document objects
 
         Flow:
-            1. PGVector retrieves first_stage_k candidates using dense embeddings
+            1. VectorStore retrieves first_stage_k candidates using dense embeddings
             2. ColBERT reranks candidates using late interaction
             3. Top final_k documents are returned
 
-        If ColBERT is not available, falls back to PGVector-only retrieval.
+        If ColBERT is not available, falls back to VectorStore-only retrieval.
         """
         first_stage_k = first_stage_k or COLBERT_FIRST_STAGE_K
         final_k = final_k or COLBERT_FINAL_K
@@ -274,8 +278,8 @@ class RAGComponents:
             logger.warning("Retriever not available")
             return []
 
-        # First stage: PGVector retrieval
-        logger.debug(f"First stage: PGVector retrieving {first_stage_k} candidates")
+        # First stage: VectorStore retrieval
+        logger.debug(f"First stage: VectorStore retrieving {first_stage_k} candidates")
         candidates = await self.retriever.ainvoke(query)
 
         if not candidates:
@@ -299,11 +303,11 @@ class RAGComponents:
                 )
                 return reranked_docs
             except Exception as e:
-                logger.error(f"ColBERT reranking failed, falling back to PGVector: {e}")
-                # Fall back to PGVector results
+                logger.error(f"ColBERT reranking failed, falling back to VectorStore: {e}")
+                # Fall back to VectorStore results
                 return candidates[:final_k]
         else:
-            # No ColBERT, use PGVector results directly
+            # No ColBERT, use VectorStore results directly
             return candidates[:final_k]
 
     async def retrieve_with_scores(
@@ -320,7 +324,7 @@ class RAGComponents:
 
         Args:
             query: The user's search query
-            first_stage_k: Number of PGVector candidates
+            first_stage_k: Number of VectorStore candidates
             final_k: Number of final results
 
         Returns:
@@ -416,7 +420,8 @@ def get_pg_connection() -> str:
     return rag_components.pg_connection
 
 
-def get_vectorstore() -> LangchainPGVector:
+def get_vectorstore() -> Any:
+    """Get the vector store (PGVector or Qdrant based on configuration)."""
     rag_components = get_rag_components()
     if rag_components.vectorstore is None:
         raise HTTPException(status_code=503, detail="Vector store is not available.")
@@ -529,8 +534,8 @@ async def get_rag_context_prefix(query: str) -> Optional[str]:
         return None
 
     try:
-        # Use two-stage retrieval (PGVector + ColBERT) if ColBERT is enabled
-        # Otherwise, just use PGVector
+        # Use two-stage retrieval (VectorStore + ColBERT) if ColBERT is enabled
+        # Otherwise, just use VectorStore
         retrieved_docs = await rag_components.retrieve_with_rerank(query)
 
         if not retrieved_docs:

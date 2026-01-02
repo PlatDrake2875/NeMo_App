@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from database_models import init_database
 from rag_components import setup_rag_components
@@ -12,10 +14,14 @@ from routers import (
     automate_router,
     chat_router,
     chunking_router,
+    config_router,
     dataset_router,
     document_router,
     health_router,
+    huggingface_router,
     model_router,
+    processed_dataset_router,
+    raw_dataset_router,
     upload_router,
 )
 
@@ -51,6 +57,10 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+# --- Rate Limiting Exception Handler ---
+# Handles 429 Too Many Requests from slowapi rate limiting
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 
 # --- Include Routers ---
 @app.get("/")
@@ -64,11 +74,16 @@ app.include_router(health_router.router)
 app.include_router(agents_router.router)
 app.include_router(chat_router.router, prefix="/api", tags=["Chat Endpoints"])
 app.include_router(model_router.router, prefix="/api", tags=["Model Endpoints"])
+app.include_router(config_router.router, prefix="/api", tags=["Config Endpoints"])
 app.include_router(dataset_router.router, prefix="/api", tags=["Dataset Endpoints"])
 app.include_router(chunking_router.router, prefix="/api", tags=["Chunking Endpoints"])
 app.include_router(document_router.router, prefix="/api", tags=["Document Endpoints"])
 app.include_router(upload_router.router, prefix="/api", tags=["Upload Endpoints"])
 app.include_router(automate_router.router, prefix="/api", tags=["Automation Endpoints"])
+# RAG Benchmark Hub routers
+app.include_router(raw_dataset_router.router, prefix="/api", tags=["Raw Dataset Endpoints"])
+app.include_router(processed_dataset_router.router, prefix="/api", tags=["Processed Dataset Endpoints"])
+app.include_router(huggingface_router.router, prefix="/api", tags=["HuggingFace Endpoints"])
 
 
 # --- Main Method for Application Testing ---

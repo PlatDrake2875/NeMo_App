@@ -3,10 +3,13 @@ Dataset registry service for managing multiple datasets with different embedders
 Handles CRUD operations for dataset configurations.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
 import psycopg
+
+logger = logging.getLogger(__name__)
 from fastapi import HTTPException
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
@@ -150,7 +153,7 @@ class DatasetRegistryService:
                 self._delete_collection(collection_name)
             except Exception as e:
                 # Log the error but don't fail the operation
-                print(f"Warning: Failed to delete collection '{collection_name}': {e}")
+                logger.warning("Failed to delete collection '%s': %s", collection_name, e)
 
             return {"message": f"Dataset '{name}' deleted successfully"}
 
@@ -212,7 +215,7 @@ class DatasetRegistryService:
             dataset.updated_at = datetime.now(timezone.utc)
 
         except Exception as e:
-            print(f"Warning: Failed to update counts for dataset '{dataset.name}': {e}")
+            logger.warning("Failed to update counts for dataset '%s': %s", dataset.name, e)
             # Don't raise, just keep existing counts
 
     def _initialize_collection(self, collection_name: str) -> None:

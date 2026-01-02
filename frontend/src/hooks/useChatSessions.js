@@ -1,14 +1,9 @@
 // HIA/frontend/src/hooks/useChatSessions.js
 import { useCallback, useMemo } from "react";
+import { formatSessionName } from "../utils/session";
 import { useActiveSession } from "./useActiveSession";
 import { useChatApi } from "./useChatApi";
 import { usePersistentSessions } from "./usePersistentSessions";
-
-// Helper function (can be moved to utils)
-const formatSessionIdFallback = (sessionId) => {
-	if (!sessionId) return "Chat";
-	return sessionId.replace(/-/g, " ").replace(/^./, (str) => str.toUpperCase());
-};
 
 /**
  * Orchestrator hook that combines session management, active session, and API logic.
@@ -25,6 +20,13 @@ export function useChatSessions(apiBaseUrl) {
 		deleteSession: deleteSessionInternal, // Rename internal function
 		renameSession,
 		clearSessionHistory: clearSessionHistoryInternal, // Rename internal function
+		// Message-level operations
+		deleteMessage,
+		updateMessage,
+		getMessagesUntil,
+		truncateHistoryAt,
+		// Import operations
+		importAsNewSession,
 	} = usePersistentSessions(activeSessionId, setActiveSessionId); // Pass initial activeId and direct setter
 
 	const {
@@ -70,7 +72,7 @@ export function useChatSessions(apiBaseUrl) {
 			// Confirmation dialog
 			const sessionName =
 				sessions[sessionIdToDelete]?.name ||
-				formatSessionIdFallback(sessionIdToDelete);
+				formatSessionName(sessionIdToDelete);
 			if (
 				!window.confirm(`Are you sure you want to delete "${sessionName}"?`)
 			) {
@@ -103,7 +105,7 @@ export function useChatSessions(apiBaseUrl) {
 		if (!activeSessionId || !sessions[activeSessionId]) return;
 		const sessionName =
 			sessions[activeSessionId].name ||
-			formatSessionIdFallback(activeSessionId);
+			formatSessionName(activeSessionId);
 		if (
 			window.confirm(
 				`Are you sure you want to clear the history for "${sessionName}"?`,
@@ -145,6 +147,93 @@ export function useChatSessions(apiBaseUrl) {
 		[handleChatSubmitRaw, activeChatHistory],
 	);
 
+	// --- Message-level Handlers ---
+
+	/**
+	 * Handle editing a user message - updates the message and triggers regeneration
+	 * This removes the message and everything after it, then submits the new message
+	 */
+	const handleEditMessage = useCallback(
+		async (messageId, newContent, model, agent = null) => {
+			if (!activeSessionId) return;
+
+			// Get history up to the message being edited
+			const historyBefore = getMessagesUntil(activeSessionId, messageId);
+
+			// Truncate history at the edited message (removes it and everything after)
+			truncateHistoryAt(activeSessionId, messageId);
+
+			// Submit the new message (this will add it to history and get a response)
+			await handleChatSubmitRaw(newContent, model, agent, historyBefore);
+		},
+		[activeSessionId, getMessagesUntil, truncateHistoryAt, handleChatSubmitRaw],
+	);
+
+	/**
+	 * Handle deleting a message from the active session
+	 */
+	const handleDeleteMessage = useCallback(
+		(messageId) => {
+			if (!activeSessionId) return;
+			deleteMessage(activeSessionId, messageId);
+		},
+		[activeSessionId, deleteMessage],
+	);
+
+	/**
+	 * Handle regenerating an assistant message
+	 * Removes the assistant message and re-submits the previous user message
+	 */
+	const handleRegenerateMessage = useCallback(
+		async (messageId, model, agent = null) => {
+			if (!activeSessionId) return;
+
+			// Get history up to the message being regenerated
+			const historyBefore = getMessagesUntil(activeSessionId, messageId);
+
+			// Find the last user message before this one
+			const lastUserMessage = [...historyBefore]
+				.reverse()
+				.find((msg) => msg.sender === "user");
+
+			if (!lastUserMessage) {
+				console.warn("Cannot regenerate: no previous user message found");
+				return;
+			}
+
+			// Truncate history at the assistant message (removes it)
+			truncateHistoryAt(activeSessionId, messageId);
+
+			// Get history without the user message we're about to re-submit
+			const historyWithoutLastUser = historyBefore.filter(
+				(msg) => msg.id !== lastUserMessage.id
+			);
+
+			// Re-submit the user message to get a new response
+			await handleChatSubmitRaw(
+				lastUserMessage.text,
+				model,
+				agent,
+				historyWithoutLastUser
+			);
+		},
+		[activeSessionId, getMessagesUntil, truncateHistoryAt, handleChatSubmitRaw],
+	);
+
+	/**
+	 * Handle importing a conversation as a new session
+	 * Creates the session and makes it active
+	 */
+	const handleImportConversation = useCallback(
+		(importedData) => {
+			const newSessionId = importAsNewSession(importedData);
+			setActiveSessionId(newSessionId);
+			setAutomationError(null);
+			return newSessionId;
+		},
+		[importAsNewSession, setActiveSessionId, setAutomationError],
+	);
+
 	// --- Exposed API ---
 	return {
 		sessions, // The full sessions object { id: { name, history } }
@@ -166,7 +255,12 @@ export function useChatSessions(apiBaseUrl) {
 		handleAutomateConversation, // Automated chat submit from API hook
 		stopGeneration, // Stop token generation
 
-		// Potentially useful utilities (optional)
-		// downloadActiveChatHistory, // This could be rebuilt here or moved to its own hook/util
+		// Message-level handlers
+		handleEditMessage, // Edit a user message and regenerate response
+		handleDeleteMessage, // Delete a specific message
+		handleRegenerateMessage, // Regenerate an assistant response
+
+		// Import/Export handlers
+		handleImportConversation, // Import a conversation as a new session
 	};
 }

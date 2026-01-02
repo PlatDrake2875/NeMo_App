@@ -6,10 +6,11 @@ import { MessageCircle } from "lucide-react";
 export function ChatInterface({
   activeSessionId,
   activeSessionName,
+  activeSession,
   chatHistory,
   onSubmit,
   onClearHistory,
-  onDownloadHistory,
+  onImportConversation,
   isSubmitting,
   onStopGeneration,
   isDarkMode,
@@ -22,6 +23,10 @@ export function ChatInterface({
   isInitialized,
   sessionAgents,
   onRefreshModels,
+  // Message action handlers
+  onEditMessage,
+  onDeleteMessage,
+  onRegenerateMessage,
 }) {
   // Determine general disabled state
   const isDisabled =
@@ -41,9 +46,11 @@ export function ChatInterface({
     <main className="flex flex-col h-full bg-background">
       <Header
         activeSessionName={activeSessionName}
+        activeSessionId={activeSessionId}
+        activeSession={activeSession}
         chatHistory={chatHistory}
         clearChatHistory={onClearHistory}
-        downloadChatHistory={onDownloadHistory}
+        onImportConversation={onImportConversation}
         disabled={isDisabled}
         isDarkMode={isDarkMode}
         toggleTheme={toggleTheme}
@@ -68,7 +75,14 @@ export function ChatInterface({
           </div>
         ) : activeSessionId ? (
           chatHistory.length > 0 || hasAgent ? (
-            <ChatHistory chatHistory={chatHistory} isLoading={isSubmitting} />
+            <ChatHistory
+              chatHistory={chatHistory}
+              isLoading={isSubmitting}
+              isSubmitting={isSubmitting}
+              onEditMessage={onEditMessage}
+              onDeleteMessage={onDeleteMessage}
+              onRegenerateMessage={onRegenerateMessage}
+            />
           ) : (
             <div className="flex items-center justify-center h-full">
               <div className="text-center space-y-3 max-w-md px-6">

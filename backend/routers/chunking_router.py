@@ -3,7 +3,7 @@ Chunking router - API endpoints for chunking methods and re-chunking operations.
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Dict
+import psycopg
 
 from schemas import (
     ChunkingMethodInfo,
@@ -13,11 +13,7 @@ from schemas import (
 )
 from services.chunking import ChunkingService
 from services.dataset_registry import DatasetRegistryService
-from multi_embedder_manager import get_multi_embedder_manager
-import psycopg
 from config import POSTGRES_LIBPQ_CONNECTION
-from langchain_community.document_loaders import PyPDFLoader
-from datetime import datetime, timezone
 
 router = APIRouter(prefix="/chunking", tags=["chunking"])
 

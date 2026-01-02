@@ -24,7 +24,14 @@ function shouldGroupMessages(currentMsg, prevMsg, timeThreshold = 120000) {
   return true; // Group by default if no timestamps
 }
 
-export const ChatHistory = ({ chatHistory, isLoading = false }) => {
+export const ChatHistory = ({
+  chatHistory,
+  isLoading = false,
+  isSubmitting = false,
+  onEditMessage,
+  onDeleteMessage,
+  onRegenerateMessage
+}) => {
   const endOfMessagesRef = useRef(null);
   const scrollAreaRef = useRef(null);
 
@@ -84,6 +91,12 @@ export const ChatHistory = ({ chatHistory, isLoading = false }) => {
                   content={entry.text}
                   timestamp={entry.timestamp}
                   isGrouped={isGrouped}
+                  messageId={entry.id}
+                  onEdit={onEditMessage}
+                  onDelete={onDeleteMessage}
+                  onRegenerate={onRegenerateMessage}
+                  showActions={!entry.isLoading}
+                  isSubmitting={isSubmitting}
                   className={cn(
                     isError && "bg-destructive/10 border-l-4 border-l-destructive"
                   )}

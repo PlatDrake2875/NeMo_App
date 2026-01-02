@@ -118,3 +118,162 @@ async def get_document_sources(
             status_code=500,
             detail=f"Failed to retrieve document sources: {str(e)}"
         ) from e
+
+
+@router.get("/stats")
+async def get_document_stats(
+    dataset: Optional[str] = Query(None, description="Filter by dataset name"),
+):
+    """
+    Get aggregate statistics about documents in the vector store.
+
+    Args:
+        dataset: Optional dataset name to filter documents.
+                 If not provided, uses the default collection.
+
+    Returns:
+        Statistics including total documents, total chunks, etc.
+    """
+    try:
+        # Determine which collection to query
+        if dataset:
+            dataset_registry = DatasetRegistryService()
+            dataset_info = dataset_registry.get_dataset(dataset)
+            collection_name = dataset_info.collection_name
+        else:
+            from config import COLLECTION_NAME
+            collection_name = COLLECTION_NAME
+
+        with psycopg.connect(POSTGRES_LIBPQ_CONNECTION) as conn:
+            with conn.cursor() as cur:
+                # Get total chunks
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = %s
+                    """,
+                    (collection_name,)
+                )
+                total_chunks = cur.fetchone()[0]
+
+                # Get unique document count
+                cur.execute(
+                    """
+                    SELECT COUNT(DISTINCT e.cmetadata->>'original_filename')
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = %s
+                    AND e.cmetadata ? 'original_filename'
+                    """,
+                    (collection_name,)
+                )
+                total_documents = cur.fetchone()[0]
+
+                # Get chunking method breakdown
+                cur.execute(
+                    """
+                    SELECT
+                        e.cmetadata->>'chunking_method' as method,
+                        COUNT(*) as count
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = %s
+                    GROUP BY e.cmetadata->>'chunking_method'
+                    """,
+                    (collection_name,)
+                )
+                methods = {row[0] or "unknown": row[1] for row in cur.fetchall()}
+
+                return {
+                    "total_documents": total_documents,
+                    "total_chunks": total_chunks,
+                    "by_method": methods,
+                    "collection_name": collection_name
+                }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve document stats: {str(e)}"
+        ) from e
+
+
+@router.delete("/source/{filename}")
+async def delete_document_by_source(
+    filename: str,
+    dataset: Optional[str] = Query(None, description="Filter by dataset name"),
+):
+    """
+    Delete all chunks for a specific document source.
+
+    Args:
+        filename: The original filename of the document to delete
+        dataset: Optional dataset name.
+                 If not provided, uses the default collection.
+
+    Returns:
+        Confirmation of deletion with count of removed chunks
+    """
+    try:
+        # Determine which collection to query
+        if dataset:
+            dataset_registry = DatasetRegistryService()
+            dataset_info = dataset_registry.get_dataset(dataset)
+            collection_name = dataset_info.collection_name
+        else:
+            from config import COLLECTION_NAME
+            collection_name = COLLECTION_NAME
+
+        with psycopg.connect(POSTGRES_LIBPQ_CONNECTION) as conn:
+            with conn.cursor() as cur:
+                # First, get the count of chunks to delete
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = %s
+                    AND e.cmetadata->>'original_filename' = %s
+                    """,
+                    (collection_name, filename)
+                )
+                chunk_count = cur.fetchone()[0]
+
+                if chunk_count == 0:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Document '{filename}' not found in collection"
+                    )
+
+                # Delete the chunks
+                cur.execute(
+                    """
+                    DELETE FROM langchain_pg_embedding
+                    WHERE id IN (
+                        SELECT e.id
+                        FROM langchain_pg_embedding e
+                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                        WHERE c.name = %s
+                        AND e.cmetadata->>'original_filename' = %s
+                    )
+                    """,
+                    (collection_name, filename)
+                )
+                conn.commit()
+
+                return {
+                    "message": f"Successfully deleted document '{filename}'",
+                    "chunks_deleted": chunk_count
+                }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete document: {str(e)}"
+        ) from e

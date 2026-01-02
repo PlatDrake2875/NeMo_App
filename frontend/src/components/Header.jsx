@@ -1,5 +1,6 @@
-import { useId, useState } from "react";
+import { useId, useState, useEffect } from "react";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,15 +20,23 @@ import {
   Sparkles,
   ChevronDown,
   Plus,
+  Database,
+  FileJson,
+  FileText,
+  Upload,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { ModelDownloadDialog } from "./ModelDownloadDialog";
+import { ImportConversationDialog } from "./ImportConversationDialog";
+import { exportAsJSON, exportAsPDF } from "../utils/exportUtils";
 
 export function Header({
   activeSessionName,
+  activeSessionId,
+  activeSession,
   chatHistory,
   clearChatHistory,
-  downloadChatHistory,
+  onImportConversation,
   disabled,
   isDarkMode,
   toggleTheme,
@@ -43,11 +52,47 @@ export function Header({
   const isHistoryEmpty =
     !Array.isArray(chatHistory) || chatHistory.length === 0;
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [vectorStoreBackend, setVectorStoreBackend] = useState(null);
+
+  // Fetch vector store configuration on mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await fetch("/api/config/vector-store");
+        if (response.ok) {
+          const data = await response.json();
+          setVectorStoreBackend(data.backend);
+        }
+      } catch (error) {
+        console.error("Failed to fetch vector store config:", error);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   const handleDownloadComplete = (modelId) => {
     // Refresh the models list
     if (onRefreshModels) {
       onRefreshModels();
+    }
+  };
+
+  const handleExportJSON = () => {
+    if (activeSession && activeSessionId) {
+      exportAsJSON(activeSession, activeSessionId, selectedModel);
+    }
+  };
+
+  const handleExportPDF = () => {
+    if (activeSession && activeSessionId) {
+      exportAsPDF(activeSession, activeSessionId, selectedModel);
+    }
+  };
+
+  const handleImport = async (importedData) => {
+    if (onImportConversation) {
+      await onImportConversation(importedData);
     }
   };
 
@@ -60,6 +105,17 @@ export function Header({
             <Sparkles className="h-5 w-5 text-primary flex-shrink-0" />
             <h1 className="text-lg font-semibold truncate">{title}</h1>
           </div>
+          {/* Vector Store Backend Badge */}
+          {vectorStoreBackend && (
+            <Badge
+              variant={vectorStoreBackend === "qdrant" ? "default" : "secondary"}
+              className="flex items-center gap-1 text-xs"
+              title={`Vector Store: ${vectorStoreBackend}`}
+            >
+              <Database className="h-3 w-3" />
+              {vectorStoreBackend === "qdrant" ? "Qdrant" : "PGVector"}
+            </Badge>
+          )}
         </div>
 
         {/* Controls Section */}
@@ -149,16 +205,43 @@ export function Header({
               <Trash2 className="h-5 w-5" />
             </Button>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={downloadChatHistory}
-              disabled={disabled || isHistoryEmpty}
-              aria-label="Download current chat history"
-              title="Download Chat"
-            >
-              <Download className="h-5 w-5" />
-            </Button>
+            {/* Export/Import Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Export or import conversation"
+                  title="Export/Import"
+                  disabled={disabled}
+                >
+                  <Download className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>Export</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={handleExportJSON}
+                  disabled={isHistoryEmpty}
+                >
+                  <FileJson className="mr-2 h-4 w-4" />
+                  Export as JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleExportPDF}
+                  disabled={isHistoryEmpty}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Export as PDF
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Import</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => setShowImportDialog(true)}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Import Conversation
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* Mobile Menu */}
@@ -186,12 +269,26 @@ export function Header({
                 <Trash2 className="mr-2 h-4 w-4" />
                 Clear Chat
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Export</DropdownMenuLabel>
               <DropdownMenuItem
-                onClick={downloadChatHistory}
-                disabled={disabled || isHistoryEmpty}
+                onClick={handleExportJSON}
+                disabled={isHistoryEmpty}
               >
-                <Download className="mr-2 h-4 w-4" />
-                Download Chat
+                <FileJson className="mr-2 h-4 w-4" />
+                Export as JSON
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleExportPDF}
+                disabled={isHistoryEmpty}
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                Export as PDF
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowImportDialog(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Import Conversation
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -203,6 +300,13 @@ export function Header({
         open={showDownloadDialog}
         onOpenChange={setShowDownloadDialog}
         onDownloadComplete={handleDownloadComplete}
+      />
+
+      {/* Import Conversation Dialog */}
+      <ImportConversationDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        onImport={handleImport}
       />
     </header>
   );

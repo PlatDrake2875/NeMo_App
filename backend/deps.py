@@ -1,16 +1,35 @@
 """
 Dependency injection setup for the FastAPI application.
-Provides service instances to endpoints.
+Provides service instances and database sessions to endpoints.
 """
 
 from functools import lru_cache
+from typing import Generator
 
+from sqlalchemy.orm import Session
+
+from database_models import get_db_session
 from services.automate import AutomateService
 from services.chat import ChatService
 from services.document import DocumentService
 from services.health import HealthService
 from services.model import ModelService
 from services.upload import UploadService
+
+
+def get_db() -> Generator[Session, None, None]:
+    """
+    Database session dependency for FastAPI routes.
+
+    Yields a SQLAlchemy session that is automatically committed on success
+    or rolled back on error.
+
+    Example:
+        @router.get("/items")
+        async def list_items(db: Session = Depends(get_db)):
+            return db.query(Item).all()
+    """
+    yield from get_db_session()
 
 
 @lru_cache

@@ -240,6 +240,120 @@ export function usePersistentSessions(
 		});
 	}, []); // No state dependencies needed here
 
+	// --- Message-level Operations ---
+
+	/**
+	 * Delete a specific message from a session's history
+	 * @param {string} sessionId - The session containing the message
+	 * @param {string} messageId - The ID of the message to delete
+	 */
+	const deleteMessage = useCallback((sessionId, messageId) => {
+		setSessions((prevSessions) => {
+			if (!prevSessions[sessionId]) return prevSessions;
+			const history = prevSessions[sessionId].history || [];
+			const newHistory = history.filter((msg) => msg.id !== messageId);
+			return {
+				...prevSessions,
+				[sessionId]: {
+					...prevSessions[sessionId],
+					history: newHistory,
+				},
+			};
+		});
+	}, []);
+
+	/**
+	 * Update a specific message's content in a session's history
+	 * @param {string} sessionId - The session containing the message
+	 * @param {string} messageId - The ID of the message to update
+	 * @param {string} newContent - The new content for the message
+	 */
+	const updateMessage = useCallback((sessionId, messageId, newContent) => {
+		setSessions((prevSessions) => {
+			if (!prevSessions[sessionId]) return prevSessions;
+			const history = prevSessions[sessionId].history || [];
+			const newHistory = history.map((msg) =>
+				msg.id === messageId ? { ...msg, text: newContent } : msg
+			);
+			return {
+				...prevSessions,
+				[sessionId]: {
+					...prevSessions[sessionId],
+					history: newHistory,
+				},
+			};
+		});
+	}, []);
+
+	/**
+	 * Get messages up to (but not including) a specific message
+	 * Useful for regeneration - get context before the message to regenerate
+	 * @param {string} sessionId - The session containing the message
+	 * @param {string} messageId - The ID of the message to stop at
+	 * @returns {Array} Messages before the specified message
+	 */
+	const getMessagesUntil = useCallback((sessionId, messageId) => {
+		const session = sessions[sessionId];
+		if (!session) return [];
+		const history = session.history || [];
+		const index = history.findIndex((msg) => msg.id === messageId);
+		if (index === -1) return history;
+		return history.slice(0, index);
+	}, [sessions]);
+
+	/**
+	 * Truncate history at a specific message (remove it and everything after)
+	 * @param {string} sessionId - The session containing the message
+	 * @param {string} messageId - The ID of the message to truncate at
+	 */
+	const truncateHistoryAt = useCallback((sessionId, messageId) => {
+		setSessions((prevSessions) => {
+			if (!prevSessions[sessionId]) return prevSessions;
+			const history = prevSessions[sessionId].history || [];
+			const index = history.findIndex((msg) => msg.id === messageId);
+			if (index === -1) return prevSessions;
+			return {
+				...prevSessions,
+				[sessionId]: {
+					...prevSessions[sessionId],
+					history: history.slice(0, index),
+				},
+			};
+		});
+	}, []);
+
+	/**
+	 * Import a conversation as a new session
+	 * @param {Object} importedData - The parsed imported conversation data
+	 * @param {Object} importedData.sessionInfo - Session metadata
+	 * @param {Array} importedData.messages - Array of messages
+	 * @returns {string} The new session ID
+	 */
+	const importAsNewSession = useCallback((importedData) => {
+		const newSessionId = generateNewSessionId(sessionCounterRef.current);
+		sessionCounterRef.current++;
+
+		// Use the imported session name or generate one
+		const sessionName = importedData.sessionInfo?.name
+			? `${importedData.sessionInfo.name} (Imported)`
+			: `Imported Chat ${new Date().toLocaleDateString()}`;
+
+		// Convert messages to the format used by the app
+		const history = importedData.messages.map((msg, index) => ({
+			id: msg.id || `imported-${Date.now()}-${index}`,
+			sender: msg.sender || "user",
+			text: msg.text || "",
+			timestamp: msg.timestamp || new Date().toISOString(),
+		}));
+
+		setSessions((prevSessions) => ({
+			...prevSessions,
+			[newSessionId]: { name: sessionName, history },
+		}));
+
+		return newSessionId;
+	}, []);
+
 	return {
 		sessions,
 		setSessions, // Expose setter for useChatApi
@@ -248,5 +362,12 @@ export function usePersistentSessions(
 		deleteSession,
 		renameSession,
 		clearSessionHistory,
+		// Message-level operations
+		deleteMessage,
+		updateMessage,
+		getMessagesUntil,
+		truncateHistoryAt,
+		// Import operations
+		importAsNewSession,
 	};
 }

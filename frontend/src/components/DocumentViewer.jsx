@@ -1,8 +1,7 @@
 // src/components/DocumentViewer.jsx
 import { useEffect, useMemo, useState } from "react";
 import styles from "./DocumentViewer.module.css";
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import { API_BASE_URL } from "../lib/api-config";
 const DOCUMENTS_API_URL = `${API_BASE_URL}/api/documents`;
 
 export function DocumentViewer() {

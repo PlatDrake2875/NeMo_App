@@ -19,6 +19,8 @@ dependencies = [
     "langchain-huggingface",
     "langchain-openai",
     "langchain-postgres",
+    "langchain-qdrant",
+    "qdrant-client",
     "psycopg[binary,pool]",
     "sentence-transformers",
     "ragatouille",
@@ -27,6 +29,10 @@ dependencies = [
     "nemoguardrails==0.13.0",
     "reportlab",
     "pyright>=1.1.405",
+    "sse-starlette",
+    "datasets",
+    "slowapi>=0.1.9",
+    "regex>=2023.0",
 ]
 
 [project.optional-dependencies]

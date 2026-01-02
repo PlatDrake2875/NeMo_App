@@ -1,0 +1,32 @@
+\begin{thebibliography}{1}
+
+\bibitem{khattab2020colbert}
+O.~Khattab and M.~Zaharia, ``Colbert: Efficient and effective passage search
+  via contextualized late interaction over bert,'' in {\em Proceedings of the
+  43rd International ACM SIGIR Conference on Research and Development in
+  Information Retrieval}, pp.~39--48, ACM, 2020.
+
+\bibitem{johnson2017billion}
+J.~Johnson, M.~Douze, and H.~J{\'e}gou, ``Billion-scale similarity search with
+  gpus,'' {\em IEEE Transactions on Big Data}, vol.~7, no.~3, pp.~535--547,
+  2019.
+
+\bibitem{karpukhin2020dense}
+V.~Karpukhin, B.~O{\u{g}}uz, S.~Min, P.~Lewis, L.~Wu, S.~Edunov, D.~Chen, and
+  W.-t. Yih, ``Dense passage retrieval for open-domain question answering,'' in
+  {\em Proceedings of the 2020 Conference on Empirical Methods in Natural
+  Language Processing (EMNLP)}, pp.~6769--6781, 2020.
+
+\bibitem{formal2021splade}
+T.~Formal, B.~Piwowarski, and S.~Clinchant, ``Splade: Sparse lexical and
+  expansion model for first stage ranking,'' in {\em Proceedings of the 44th
+  International ACM SIGIR Conference on Research and Development in Information
+  Retrieval}, pp.~2288--2292, ACM, 2021.
+
+\bibitem{thakur2021beir}
+N.~Thakur, N.~Reimers, A.~R{\"u}ckl{\'e}, A.~Srivastava, and I.~Gurevych,
+  ``Beir: A heterogeneous benchmark for zero-shot evaluation of information
+  retrieval models,'' in {\em Thirty-fifth Conference on Neural Information
+  Processing Systems Datasets and Benchmarks Track}, 2021.
+
+\end{thebibliography}

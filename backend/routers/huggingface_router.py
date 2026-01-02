@@ -1,0 +1,244 @@
+"""
+HuggingFace Integration Router - Import datasets from HuggingFace Hub.
+"""
+
+import json
+import logging
+import re
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException, Query
+from sse_starlette.sse import EventSourceResponse
+from schemas import (
+    HFDatasetMetadata,
+    HFDirectProcessRequest,
+    HFImportAsRawRequest,
+)
+from services.huggingface_dataset import huggingface_dataset_service
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/huggingface", tags=["huggingface"])
+
+
+@router.get("/datasets/search")
+async def search_datasets(
+    query: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum results"),
+):
+    """
+    Search for datasets on HuggingFace Hub.
+
+    Returns a list of matching datasets with basic metadata.
+    """
+    result = await huggingface_dataset_service.search_datasets(query, limit)
+    return {
+        "count": len(result["results"]),
+        "datasets": result["results"],
+        "error": result["error"],
+    }
+
+
+def _validate_dataset_id(dataset_id: str) -> None:
+    """Validate HuggingFace dataset ID format."""
+    # Dataset IDs should be in format: "owner/name" or "name"
+    if not re.match(r'^[\w.-]+(/[\w.-]+)?$', dataset_id):
+        raise HTTPException(status_code=400, detail="Invalid dataset ID format")
+
+
+@router.get("/datasets/{dataset_id:path}/metadata", response_model=HFDatasetMetadata)
+async def get_dataset_metadata(
+    dataset_id: str,
+):
+    """
+    Get metadata about a HuggingFace dataset.
+
+    Returns information about the dataset including available splits,
+    features (columns), and row counts.
+    """
+    _validate_dataset_id(dataset_id)
+    try:
+        return await huggingface_dataset_service.get_dataset_metadata(dataset_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/datasets/{dataset_id:path}/validate")
+async def validate_dataset(
+    dataset_id: str,
+):
+    """
+    Validate that a HuggingFace dataset exists and is accessible.
+
+    Returns validation status and any error messages.
+    """
+    _validate_dataset_id(dataset_id)
+    is_valid, error = await huggingface_dataset_service.validate_dataset(dataset_id)
+    return {
+        "dataset_id": dataset_id,
+        "is_valid": is_valid,
+        "error": error,
+    }
+
+
+@router.post("/import-raw")
+async def import_as_raw_dataset(
+    request: HFImportAsRawRequest,
+):
+    """
+    Import a HuggingFace dataset as a raw dataset.
+
+    This streams progress updates via Server-Sent Events.
+    The dataset will be downloaded and stored as JSON files
+    in the raw dataset for later processing.
+
+    Note: Uses a dedicated database session for the SSE generator
+    to avoid connection issues with long-running streams.
+    """
+
+    async def event_generator():
+        # Create dedicated database session for the generator
+        from database_models import get_session_maker
+        SessionLocal = get_session_maker()
+        stream_db = SessionLocal()
+        try:
+            async for update in huggingface_dataset_service.import_as_raw(stream_db, request):
+                yield {
+                    "event": update.get("type", "message"),
+                    "data": json.dumps(update),
+                }
+        except Exception as e:
+            logger.error(f"Import error: {e}", exc_info=True)
+            yield {
+                "event": "error",
+                "data": json.dumps({"type": "error", "message": str(e)}),
+            }
+        finally:
+            stream_db.close()
+
+    return EventSourceResponse(event_generator())
+
+
+@router.post("/process-direct")
+async def process_dataset_directly(
+    request: HFDirectProcessRequest,
+):
+    """
+    Download and process a HuggingFace dataset directly to vector store.
+
+    This combines import and processing into a single operation.
+    Streams progress updates via Server-Sent Events.
+
+    Note: Uses a dedicated database session for the SSE generator
+    to avoid connection issues with long-running streams.
+    """
+
+    async def event_generator():
+        # Create dedicated database session for the generator
+        from database_models import get_session_maker
+        SessionLocal = get_session_maker()
+        stream_db = SessionLocal()
+        try:
+            async for update in huggingface_dataset_service.process_direct(stream_db, request):
+                yield {
+                    "event": update.get("type", "message"),
+                    "data": json.dumps(update),
+                }
+        except Exception as e:
+            logger.error(f"Direct processing error: {e}", exc_info=True)
+            yield {
+                "event": "error",
+                "data": json.dumps({"type": "error", "message": str(e)}),
+            }
+        finally:
+            stream_db.close()
+
+    return EventSourceResponse(event_generator())
+
+
+@router.get("/datasets/{dataset_id:path}/preview")
+async def preview_dataset(
+    dataset_id: str,
+    split: str = Query("train", description="Dataset split to preview"),
+    limit: int = Query(10, ge=1, le=100, description="Number of rows to preview"),
+    text_column: Optional[str] = Query(None, description="Column to use as text"),
+):
+    """
+    Preview rows from a HuggingFace dataset.
+
+    Returns sample rows from the specified split.
+    """
+    _validate_dataset_id(dataset_id)
+    try:
+        from datasets import load_dataset
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+
+        # Load a small sample (trust_remote_code=False for security)
+        dataset = await loop.run_in_executor(
+            None,
+            lambda: load_dataset(
+                dataset_id,
+                split=f"{split}[:{limit}]",
+                trust_remote_code=False,
+            ),
+        )
+
+        # Convert to list of dicts
+        rows = []
+        for i in range(min(limit, len(dataset))):
+            row = dataset[i]
+            # Convert non-JSON-serializable types to strings
+            cleaned_row = {}
+            for k, v in row.items():
+                if isinstance(v, (str, int, float, bool, type(None))):
+                    cleaned_row[k] = v
+                elif isinstance(v, (list, dict)):
+                    cleaned_row[k] = v
+                else:
+                    cleaned_row[k] = str(v)
+            rows.append(cleaned_row)
+
+        # Get columns
+        columns = list(dataset.features.keys()) if hasattr(dataset, "features") else []
+
+        return {
+            "dataset_id": dataset_id,
+            "split": split,
+            "columns": columns,
+            "row_count": len(rows),
+            "rows": rows,
+            "suggested_text_column": text_column or _suggest_text_column(columns, rows),
+        }
+
+    except Exception as e:
+        logger.error(f"Preview error for {dataset_id}: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to preview dataset: {e}")
+
+
+def _suggest_text_column(columns: List[str], rows: List[dict]) -> Optional[str]:
+    """Suggest the best column to use as text content."""
+    # Common text column names
+    preferred = ["text", "content", "body", "context", "passage", "document", "question"]
+
+    for col in preferred:
+        if col in columns:
+            return col
+
+    # Find the column with the longest average text
+    if rows:
+        avg_lengths = {}
+        for col in columns:
+            lengths = [
+                len(str(row.get(col, "")))
+                for row in rows
+                if isinstance(row.get(col), str)
+            ]
+            if lengths:
+                avg_lengths[col] = sum(lengths) / len(lengths)
+
+        if avg_lengths:
+            return max(avg_lengths, key=avg_lengths.get)
+
+    return columns[0] if columns else None

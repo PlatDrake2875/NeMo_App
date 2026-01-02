@@ -8,7 +8,8 @@ import { Checkbox } from "./ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import {
   MessageSquarePlus,
-  FileText,
+  Database,
+  Shield,
   Pencil,
   Trash2,
   Check,
@@ -19,6 +20,8 @@ import {
   Loader2,
   CheckSquare,
   Square,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -42,7 +45,10 @@ export function Sidebar({
   onUploadPdf,
   isUploadingPdf,
   pdfUploadStatus,
-  onViewDocuments,
+  onViewRAGHub,
+  onViewGuardrails,
+  isDarkMode,
+  toggleTheme,
 }) {
   const sessionIds = isInitialized ? Object.keys(sessions) : [];
   const [automationJson, setAutomationJson] = useState(
@@ -221,12 +227,20 @@ export function Sidebar({
           New Chat
         </Button>
         <Button
-          onClick={onViewDocuments}
+          onClick={onViewRAGHub}
           className="w-full justify-start gap-2"
           variant="outline"
         >
-          <FileText className="h-4 w-4" />
-          View Documents
+          <Database className="h-4 w-4" />
+          RAG Benchmark Hub
+        </Button>
+        <Button
+          onClick={onViewGuardrails}
+          className="w-full justify-start gap-2"
+          variant="outline"
+        >
+          <Shield className="h-4 w-4" />
+          Guardrails
         </Button>
       </div>
 
@@ -557,6 +571,27 @@ export function Sidebar({
             )}
           </CardContent>
         </Card>
+
+        {/* Theme Toggle */}
+        <Separator className="my-2" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleTheme}
+          className="w-full justify-start gap-2"
+        >
+          {isDarkMode ? (
+            <>
+              <Sun className="h-4 w-4" />
+              Light Mode
+            </>
+          ) : (
+            <>
+              <Moon className="h-4 w-4" />
+              Dark Mode
+            </>
+          )}
+        </Button>
       </div>
     </aside>
   );
@@ -577,7 +612,10 @@ Sidebar.propTypes = {
   onUploadPdf: PropTypes.func,
   isUploadingPdf: PropTypes.bool,
   pdfUploadStatus: PropTypes.object,
-  onViewDocuments: PropTypes.func,
+  onViewRAGHub: PropTypes.func,
+  onViewGuardrails: PropTypes.func,
+  isDarkMode: PropTypes.bool,
+  toggleTheme: PropTypes.func,
 };
 
 export default Sidebar;
