@@ -48,6 +48,7 @@ class VectorStoreFactory:
         embedding_function: Embeddings,
         collection_name: Optional[str] = None,
         backend: Optional[str] = None,
+        async_mode: bool = False,
     ) -> Any:
         """
         Create a vector store instance based on the configured backend.
@@ -56,6 +57,7 @@ class VectorStoreFactory:
             embedding_function: The embedding function to use
             collection_name: Name of the collection (defaults to COLLECTION_NAME)
             backend: Override the default backend ("pgvector" or "qdrant")
+            async_mode: For PGVector - True for retrieval (ainvoke), False for indexing (add_documents)
 
         Returns:
             A LangChain-compatible vector store instance
@@ -66,7 +68,7 @@ class VectorStoreFactory:
         if backend == "qdrant":
             return cls._create_qdrant_vectorstore(embedding_function, collection)
         elif backend == "pgvector":
-            return cls._create_pgvector_vectorstore(embedding_function, collection)
+            return cls._create_pgvector_vectorstore(embedding_function, collection, async_mode)
         else:
             raise ValueError(f"Unknown vector store backend: {backend}")
 
@@ -75,15 +77,17 @@ class VectorStoreFactory:
         cls,
         embedding_function: Embeddings,
         collection_name: str,
+        async_mode: bool = False,
     ) -> LangchainPGVector:
         """Create a PGVector (PostgreSQL) vector store instance."""
-        logger.info(f"Creating PGVector vectorstore with collection: {collection_name}")
+        logger.info(f"Creating PGVector vectorstore with collection: {collection_name} (async_mode={async_mode})")
 
         vectorstore = LangchainPGVector(
             embeddings=embedding_function,
             collection_name=collection_name,
             connection=POSTGRES_CONNECTION_STRING,
             use_jsonb=True,
+            async_mode=async_mode,
         )
 
         return vectorstore
@@ -136,6 +140,7 @@ def create_vectorstore(
     embedding_function: Embeddings,
     collection_name: Optional[str] = None,
     backend: Optional[str] = None,
+    async_mode: bool = False,
 ) -> Any:
     """
     Convenience function to create a vector store.
@@ -144,6 +149,7 @@ def create_vectorstore(
         embedding_function: The embedding function to use
         collection_name: Name of the collection
         backend: Override the default backend
+        async_mode: For PGVector - True for retrieval (ainvoke), False for indexing (add_documents)
 
     Returns:
         A LangChain-compatible vector store instance
@@ -152,4 +158,5 @@ def create_vectorstore(
         embedding_function=embedding_function,
         collection_name=collection_name,
         backend=backend,
+        async_mode=async_mode,
     )

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Database,
   Download,
+  FlaskConical,
   FolderOpen,
   GitBranch,
   LayoutDashboard,
@@ -18,6 +19,7 @@ const navItems = [
   { id: "raw", label: "Raw Datasets", icon: FolderOpen },
   { id: "pipeline", label: "Preprocessing", icon: GitBranch },
   { id: "processed", label: "Processed Datasets", icon: Database },
+  { id: "evaluation", label: "Evaluation", icon: FlaskConical },
   { id: "huggingface", label: "HuggingFace Import", icon: Download },
 ];
 

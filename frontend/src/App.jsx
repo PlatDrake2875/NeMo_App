@@ -56,6 +56,11 @@ function App() {
 	// --- State for View Management ---
 	const [currentView, setCurrentView] = useState("chat"); // 'chat', 'rag-hub', or 'guardrails'
 
+	// --- Advanced Settings State ---
+	const [selectedDataset, setSelectedDataset] = useState("rag_documents");
+	const [isRagEnabled, setIsRagEnabled] = useState(true);
+	const [isColbertEnabled, setIsColbertEnabled] = useState(true);
+
 	const fetchModels = useCallback(async () => {
 		setModelsLoading(true);
 		setModelsError(null);
@@ -123,10 +128,17 @@ function App() {
 			// Get the selected agent for the current session (null if skipped)
 			const selectedAgent = sessionAgents[activeSessionId] || null;
 
-			// Pass the query, model, and agent to the chat API
-			await originalHandleChatSubmit(query, selectedModel, selectedAgent);
+			// Build RAG settings from advanced settings state
+			const ragSettings = {
+				useRag: isRagEnabled,
+				collectionName: selectedDataset !== "rag_documents" ? selectedDataset : null,
+				useColbert: isColbertEnabled,
+			};
+
+			// Pass the query, model, agent, and RAG settings to the chat API
+			await originalHandleChatSubmit(query, selectedModel, selectedAgent, ragSettings);
 		},
-		[selectedModel, originalHandleChatSubmit, sessionAgents, activeSessionId],
+		[selectedModel, originalHandleChatSubmit, sessionAgents, activeSessionId, isRagEnabled, selectedDataset, isColbertEnabled],
 	);
 
 	// --- Message Action Handlers (wrap with model and agent) ---
@@ -352,6 +364,13 @@ function App() {
 							onEditMessage={handleEditMessageWithModel}
 							onDeleteMessage={handleDeleteMessage}
 							onRegenerateMessage={handleRegenerateMessageWithModel}
+							// Advanced Settings props
+							selectedDataset={selectedDataset}
+							onDatasetChange={setSelectedDataset}
+							isRagEnabled={isRagEnabled}
+							onRagEnabledChange={setIsRagEnabled}
+							isColbertEnabled={isColbertEnabled}
+							onColbertEnabledChange={setIsColbertEnabled}
 						/>
 					) : currentView === "rag-hub" ? (
 						<RAGBenchmarkHub

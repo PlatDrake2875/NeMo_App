@@ -77,6 +77,12 @@ class ChatRequest(BaseModel):
     use_rag: Optional[bool] = Field(
         None, description="Whether to use RAG for this request"
     )
+    collection_name: Optional[str] = Field(
+        None, description="Name of the vector store collection to use for RAG"
+    )
+    use_colbert: Optional[bool] = Field(
+        None, description="Whether to use ColBERT reranking for RAG"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -89,6 +95,8 @@ class ChatRequest(BaseModel):
                     {"sender": "bot", "text": "Hi there! How can I help you?"},
                 ],
                 "use_rag": True,
+                "collection_name": "rag_documents",
+                "use_colbert": True,
             }
         }
     )

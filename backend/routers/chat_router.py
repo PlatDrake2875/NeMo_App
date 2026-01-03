@@ -61,6 +61,8 @@ async def chat_endpoint(
         agent_name=chat_request.agent_name,
         history=history_dicts,
         use_rag=chat_request.use_rag,
+        collection_name=chat_request.collection_name,
+        use_colbert=chat_request.use_colbert,
         request=request,
     )
 

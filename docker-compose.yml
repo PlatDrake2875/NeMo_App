@@ -24,6 +24,10 @@ services:
       - USE_GUARDRAILS=false
       - RAG_ENABLED=true
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # For downloading gated models
+      # ColBERT configuration
+      - COLBERT_RERANK_ENABLED=true
+      - COLBERT_FIRST_STAGE_K=20  # Candidates from PGVector
+      - COLBERT_FINAL_K=5         # Results after ColBERT reranking
       # Qdrant configuration
       - VECTOR_STORE_BACKEND=${VECTOR_STORE_BACKEND:-pgvector}  # pgvector or qdrant
       - QDRANT_HOST=qdrant

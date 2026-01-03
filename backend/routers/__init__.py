@@ -9,6 +9,7 @@ from . import chunking_router
 from . import config_router
 from . import dataset_router
 from . import document_router
+from . import evaluation_router
 from . import health_router
 from . import huggingface_router
 from . import model_router
@@ -24,6 +25,7 @@ __all__ = [
     "config_router",
     "dataset_router",
     "document_router",
+    "evaluation_router",
     "health_router",
     "huggingface_router",
     "model_router",

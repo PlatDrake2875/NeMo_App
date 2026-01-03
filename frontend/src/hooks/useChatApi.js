@@ -41,7 +41,7 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 
 	// --- Interactive Chat Submission ---
 	const handleChatSubmit = useCallback(
-		async (query, model, agent = null, conversationHistory = []) => {
+		async (query, model, agent = null, conversationHistory = [], ragSettings = {}) => {
 			if (!activeSessionId || !model || isSubmitting) {
 				console.warn("API Hook: Chat submission prevented.", {
 					activeSessionId,
@@ -50,6 +50,13 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 				});
 				return;
 			}
+
+			// Extract RAG settings with defaults
+			const {
+				useRag = true,
+				collectionName = null,
+				useColbert = true,
+			} = ragSettings;
 			const reqId = `req_${Date.now()}`; // Simple request ID
 			console.log(
 				`API Hook: [${activeSessionId} - ${reqId}] SUBMIT starting for model: ${model}`,
@@ -117,6 +124,9 @@ export function useChatApi(apiBaseUrl, activeSessionId, setSessions) {
 						model,
 						history: formattedHistory, // Include conversation history for context
 						...(agent && { agent_name: agent }), // Include agent_name only if agent is provided
+						use_rag: useRag,
+						...(collectionName && { collection_name: collectionName }),
+						use_colbert: useColbert,
 					}),
 					signal: abortControllerRef.current.signal,
 				});

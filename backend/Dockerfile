@@ -3,6 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies needed for building Python packages and health checks
+# git is required by RAGatouille/ColBERT
 RUN apt-get update && apt-get install -y \
     build-essential \
     g++ \
@@ -11,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     make \
     pkg-config \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv

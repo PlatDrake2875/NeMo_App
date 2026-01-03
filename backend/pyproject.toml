@@ -24,6 +24,7 @@ dependencies = [
     "psycopg[binary,pool]",
     "sentence-transformers",
     "ragatouille",
+    "psutil",  # Required by RAGatouille
     "pypdf",
     "tiktoken",
     "nemoguardrails==0.13.0",

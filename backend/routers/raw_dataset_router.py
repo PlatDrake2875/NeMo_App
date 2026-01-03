@@ -145,7 +145,15 @@ async def upload_files_batch(
     Returns structured response with both successful uploads and failures.
     Rate limited to 5 batch uploads per minute per IP.
     """
-    return await raw_dataset_service.add_files_batch(db, dataset_id, files)
+    result = await raw_dataset_service.add_files_batch(db, dataset_id, files)
+
+    # Transform service response to match BatchUploadResponse schema
+    return BatchUploadResponse(
+        successful_count=len(result["successful"]),
+        failed_count=len(result["failed"]),
+        successful_files=[f.filename for f in result["successful"]],
+        failed_files=result["failed"],
+    )
 
 
 @router.delete("/{dataset_id}/files/{file_id}")

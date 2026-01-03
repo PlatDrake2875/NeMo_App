@@ -27,6 +27,13 @@ export function ChatInterface({
   onEditMessage,
   onDeleteMessage,
   onRegenerateMessage,
+  // Advanced Settings props
+  selectedDataset,
+  onDatasetChange,
+  isRagEnabled,
+  onRagEnabledChange,
+  isColbertEnabled,
+  onColbertEnabledChange,
 }) {
   // Determine general disabled state
   const isDisabled =
@@ -60,6 +67,13 @@ export function ChatInterface({
         modelsLoading={modelsLoading}
         modelsError={modelsError}
         onRefreshModels={onRefreshModels}
+        // Advanced Settings props
+        selectedDataset={selectedDataset}
+        onDatasetChange={onDatasetChange}
+        isRagEnabled={isRagEnabled}
+        onRagEnabledChange={onRagEnabledChange}
+        isColbertEnabled={isColbertEnabled}
+        onColbertEnabledChange={onColbertEnabledChange}
       />
 
       {/* Main Chat Area */}

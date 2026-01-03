@@ -125,10 +125,12 @@ class RAGComponents:
         if self.embedding_function:
             try:
                 # Use factory to create the appropriate vectorstore
+                # async_mode=True required for ainvoke() in retrieval
                 self.vectorstore = create_vectorstore(
                     embedding_function=self.embedding_function,
                     collection_name=COLLECTION_NAME,
                     backend=VECTOR_STORE_BACKEND,
+                    async_mode=True,
                 )
 
                 logger.info(f"Initialized {VECTOR_STORE_BACKEND} vectorstore with collection: {COLLECTION_NAME}")
@@ -248,7 +250,8 @@ class RAGComponents:
         self,
         query: str,
         first_stage_k: Optional[int] = None,
-        final_k: Optional[int] = None
+        final_k: Optional[int] = None,
+        use_colbert_override: Optional[bool] = None,
     ) -> List[Document]:
         """
         Two-stage retrieval: VectorStore candidates → ColBERT reranking.
@@ -260,6 +263,7 @@ class RAGComponents:
             query: The user's search query
             first_stage_k: Number of VectorStore candidates (default: config value)
             final_k: Number of results after reranking (default: config value)
+            use_colbert_override: Optional override for ColBERT usage (None = use config)
 
         Returns:
             List of reranked Document objects
@@ -274,21 +278,33 @@ class RAGComponents:
         first_stage_k = first_stage_k or COLBERT_FIRST_STAGE_K
         final_k = final_k or COLBERT_FINAL_K
 
+        # Determine if ColBERT should be used for this request
+        use_colbert = use_colbert_override if use_colbert_override is not None else self.colbert_rerank_enabled
+
         if not self.retriever:
             logger.warning("Retriever not available")
             return []
 
         # First stage: VectorStore retrieval
-        logger.debug(f"First stage: VectorStore retrieving {first_stage_k} candidates")
+        logger.info(f"[RAG] Stage 1: PGVector retrieving {first_stage_k} candidates...")
         candidates = await self.retriever.ainvoke(query)
 
         if not candidates:
-            logger.debug("No candidates found in first stage")
+            logger.info("[RAG] No candidates found in first stage")
             return []
 
+        logger.info(f"[RAG] Stage 1 complete: Got {len(candidates)} candidates from PGVector")
+
+        # Log PGVector's top candidates (before ColBERT reranking)
+        logger.info("[RAG] === PGVector Top 5 Candidates (by embedding similarity) ===")
+        for i, doc in enumerate(candidates[:5]):
+            source = doc.metadata.get('source', 'unknown')[:30]
+            snippet = doc.page_content[:80].replace('\n', ' ')
+            logger.info(f"[RAG]   PGVector #{i+1}: [{source}...] \"{snippet}...\"")
+
         # Second stage: ColBERT reranking (if enabled and available)
-        if self.colbert_rerank_enabled and self.colbert_retriever:
-            logger.debug(f"Second stage: ColBERT reranking to top {final_k}")
+        if use_colbert and self.colbert_retriever:
+            logger.info(f"[RAG] Stage 2: ColBERT reranking {len(candidates)} candidates to top {final_k}...")
             try:
                 reranked_results = await self.colbert_retriever.arerank(
                     query=query,
@@ -297,9 +313,20 @@ class RAGComponents:
                 )
                 # Extract just the documents (not scores) for compatibility
                 reranked_docs = [doc for doc, score in reranked_results]
-                logger.debug(
-                    f"ColBERT reranking complete. "
-                    f"Top score: {reranked_results[0][1] if reranked_results else 'N/A'}"
+                top_score = reranked_results[0][1] if reranked_results else 'N/A'
+
+                # Log ColBERT's reranked results with scores
+                logger.info(f"[RAG] === ColBERT Reranked Top {final_k} (by token-level semantic matching) ===")
+                for i, (doc, score) in enumerate(reranked_results):
+                    source = doc.metadata.get('source', 'unknown')[:30]
+                    snippet = doc.page_content[:80].replace('\n', ' ')
+                    # Find original PGVector rank
+                    orig_rank = next((j+1 for j, c in enumerate(candidates) if c.page_content == doc.page_content), '?')
+                    logger.info(f"[RAG]   ColBERT #{i+1} (score={score:.2f}, was PGVector #{orig_rank}): \"{snippet}...\"")
+
+                logger.info(
+                    f"[RAG] Stage 2 complete: ColBERT returned {len(reranked_docs)} docs "
+                    f"(top score: {top_score:.4f})"
                 )
                 return reranked_docs
             except Exception as e:
@@ -506,7 +533,11 @@ def get_optional_colbert_retriever() -> Optional[ColBERTRetriever]:
 
 
 # --- Function to Generate RAG Context Prefix ---
-async def get_rag_context_prefix(query: str) -> Optional[str]:
+async def get_rag_context_prefix(
+    query: str,
+    collection_name: Optional[str] = None,
+    use_colbert: Optional[bool] = None,
+) -> Optional[str]:
     """
     Generate RAG context prefix for a query.
 
@@ -519,6 +550,8 @@ async def get_rag_context_prefix(query: str) -> Optional[str]:
 
     Args:
         query: The user's question
+        collection_name: Optional collection name to use (defaults to COLLECTION_NAME)
+        use_colbert: Optional override for ColBERT usage (defaults to COLBERT_RERANK_ENABLED)
 
     Returns:
         Formatted prompt with context, or None if RAG is disabled/unavailable
@@ -527,16 +560,27 @@ async def get_rag_context_prefix(query: str) -> Optional[str]:
         return None
 
     rag_components = get_rag_components()
-    if (
-        not rag_components.retriever
-        or not rag_components.rag_context_prefix_prompt_template_obj
-    ):
+    if not rag_components.rag_context_prefix_prompt_template_obj:
         return None
 
+    # Determine effective collection and ColBERT settings
+    effective_collection = collection_name or COLLECTION_NAME
+    effective_use_colbert = use_colbert if use_colbert is not None else COLBERT_RERANK_ENABLED
+
     try:
-        # Use two-stage retrieval (VectorStore + ColBERT) if ColBERT is enabled
-        # Otherwise, just use VectorStore
-        retrieved_docs = await rag_components.retrieve_with_rerank(query)
+        # Check if we need to use a different collection
+        if effective_collection != COLLECTION_NAME:
+            logger.info(f"[RAG] Using custom collection: {effective_collection}")
+            retrieved_docs = await _retrieve_from_collection(
+                query, effective_collection, effective_use_colbert
+            )
+        else:
+            # Use default retriever
+            if not rag_components.retriever:
+                return None
+            retrieved_docs = await rag_components.retrieve_with_rerank(
+                query, use_colbert_override=effective_use_colbert
+            )
 
         if not retrieved_docs:
             return None
@@ -553,6 +597,71 @@ async def get_rag_context_prefix(query: str) -> Optional[str]:
     except Exception as e:
         logger.error("Error generating RAG context prefix: %s", e, exc_info=True)
         return None
+
+
+async def _retrieve_from_collection(
+    query: str,
+    collection_name: str,
+    use_colbert: bool,
+) -> List[Document]:
+    """
+    Retrieve documents from a specific collection.
+
+    Creates a temporary vectorstore for the given collection and retrieves documents.
+
+    Args:
+        query: The user's query
+        collection_name: Name of the vector store collection
+        use_colbert: Whether to use ColBERT reranking
+
+    Returns:
+        List of retrieved documents
+    """
+    from langchain_huggingface import HuggingFaceEmbeddings
+
+    try:
+        # Create embedding function
+        embedding_function = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+
+        # Create vectorstore for the specified collection
+        vectorstore = create_vectorstore(
+            embedding_function=embedding_function,
+            collection_name=collection_name,
+            backend=VECTOR_STORE_BACKEND,
+            async_mode=True,
+        )
+
+        # Create retriever
+        first_stage_k = COLBERT_FIRST_STAGE_K if use_colbert else COLBERT_FINAL_K
+        retriever = vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": first_stage_k},
+        )
+
+        # Retrieve candidates
+        logger.info(f"[RAG] Retrieving from collection '{collection_name}' with k={first_stage_k}")
+        candidates = await retriever.ainvoke(query)
+
+        if not candidates:
+            logger.info(f"[RAG] No candidates found in collection '{collection_name}'")
+            return []
+
+        # Apply ColBERT reranking if enabled and available
+        if use_colbert and COLBERT_AVAILABLE:
+            rag_components = get_rag_components()
+            if rag_components.colbert_retriever:
+                logger.info(f"[RAG] Applying ColBERT reranking on {len(candidates)} candidates")
+                reranked_with_scores = rag_components.colbert_retriever.rerank(
+                    query, candidates, k=COLBERT_FINAL_K
+                )
+                # Extract just the documents (rerank returns List[Tuple[Document, float]])
+                return [doc for doc, score in reranked_with_scores]
+
+        return candidates[:COLBERT_FINAL_K]
+
+    except Exception as e:
+        logger.error(f"Error retrieving from collection '{collection_name}': {e}", exc_info=True)
+        return []
 
 
 async def get_rag_context_with_scores(query: str) -> Optional[Tuple[str, List[Tuple[Document, float]]]]:

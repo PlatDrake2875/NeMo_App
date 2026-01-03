@@ -24,10 +24,12 @@ import {
   FileJson,
   FileText,
   Upload,
+  Settings,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { ModelDownloadDialog } from "./ModelDownloadDialog";
 import { ImportConversationDialog } from "./ImportConversationDialog";
+import { AdvancedSettingsDropdown } from "./AdvancedSettingsDropdown";
 import { exportAsJSON, exportAsPDF } from "../utils/exportUtils";
 
 export function Header({
@@ -46,6 +48,13 @@ export function Header({
   modelsLoading,
   modelsError,
   onRefreshModels,
+  // Advanced Settings props
+  selectedDataset,
+  onDatasetChange,
+  isRagEnabled = true,
+  onRagEnabledChange,
+  isColbertEnabled = true,
+  onColbertEnabledChange,
 }) {
   const modelSelectId = useId();
   const title = activeSessionName || "Chat";
@@ -53,6 +62,7 @@ export function Header({
     !Array.isArray(chatHistory) || chatHistory.length === 0;
   const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [vectorStoreBackend, setVectorStoreBackend] = useState(null);
 
   // Fetch vector store configuration on mount
@@ -176,6 +186,16 @@ export function Header({
               title="Download Model"
             >
               <Plus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowAdvancedSettings(true)}
+              disabled={disabled}
+              aria-label="Advanced Settings"
+              title="Advanced Settings"
+            >
+              <Settings className="h-4 w-4" />
             </Button>
           </div>
 
@@ -307,6 +327,18 @@ export function Header({
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
         onImport={handleImport}
+      />
+
+      {/* Advanced Settings Dropdown */}
+      <AdvancedSettingsDropdown
+        open={showAdvancedSettings}
+        onOpenChange={setShowAdvancedSettings}
+        selectedDataset={selectedDataset}
+        onDatasetChange={onDatasetChange}
+        isRagEnabled={isRagEnabled}
+        onRagEnabledChange={onRagEnabledChange}
+        isColbertEnabled={isColbertEnabled}
+        onColbertEnabledChange={onColbertEnabledChange}
       />
     </header>
   );

@@ -139,10 +139,10 @@ export function useChatSessions(apiBaseUrl) {
 
 	// --- Wrap handleChatSubmit to include conversation history ---
 	const handleChatSubmit = useCallback(
-		async (query, model, agent = null) => {
+		async (query, model, agent = null, ragSettings = {}) => {
 			// Get current conversation history and pass it to the API handler
 			const currentHistory = activeChatHistory || [];
-			await handleChatSubmitRaw(query, model, agent, currentHistory);
+			await handleChatSubmitRaw(query, model, agent, currentHistory, ragSettings);
 		},
 		[handleChatSubmitRaw, activeChatHistory],
 	);

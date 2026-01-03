@@ -7,6 +7,7 @@ import { DatasetDashboard } from "./rag-benchmark-hub/DatasetDashboard";
 import { RawDatasetManager } from "./rag-benchmark-hub/raw-datasets/RawDatasetManager";
 import { PreprocessingPipeline } from "./rag-benchmark-hub/preprocessing/PreprocessingPipeline";
 import { ProcessedDatasetEditor } from "./rag-benchmark-hub/processed-datasets/ProcessedDatasetEditor";
+import { EvaluationPage } from "./rag-benchmark-hub/evaluation/EvaluationPage";
 import { HuggingFaceImporter } from "./rag-benchmark-hub/huggingface/HuggingFaceImporter";
 
 export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
@@ -22,6 +23,8 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
         return <PreprocessingPipeline />;
       case "processed":
         return <ProcessedDatasetEditor />;
+      case "evaluation":
+        return <EvaluationPage />;
       case "huggingface":
         return <HuggingFaceImporter />;
       default:
@@ -57,6 +60,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, toggleTheme }) {
             {currentView === "raw" && "Raw Datasets"}
             {currentView === "pipeline" && "Preprocessing Pipeline"}
             {currentView === "processed" && "Processed Datasets"}
+            {currentView === "evaluation" && "Evaluation"}
             {currentView === "huggingface" && "HuggingFace Import"}
           </h1>
         </div>

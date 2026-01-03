@@ -51,6 +51,8 @@ class ChatService:
         agent_name: Optional[str] = None,
         history: Optional[list[dict]] = None,
         use_rag: Optional[bool] = None,
+        collection_name: Optional[str] = None,
+        use_colbert: Optional[bool] = None,
         request=None,
     ) -> AsyncGenerator[str, None]:
         """
@@ -62,6 +64,8 @@ class ChatService:
             agent_name: Optional NeMo agent name for guardrails
             history: Optional conversation history
             use_rag: Whether to use RAG (defaults to config setting)
+            collection_name: Vector store collection to use for RAG
+            use_colbert: Whether to use ColBERT reranking
             request: FastAPI request for disconnect detection
 
         Yields:
@@ -71,7 +75,9 @@ class ChatService:
         use_rag = use_rag if use_rag is not None else self.rag_enabled
         effective_model = model_name or self.default_model
 
-        messages = await self._build_messages(history, query, use_rag)
+        messages = await self._build_messages(
+            history, query, use_rag, collection_name, use_colbert
+        )
 
         if self.use_guardrails:
             async for chunk in self._stream_via_guardrails(
@@ -94,6 +100,8 @@ class ChatService:
         history: list[dict],
         query: str,
         use_rag: bool,
+        collection_name: Optional[str] = None,
+        use_colbert: Optional[bool] = None,
     ) -> list[dict[str, str]]:
         """
         Build LLM messages from history and query with optional RAG enhancement.
@@ -102,6 +110,8 @@ class ChatService:
             history: Conversation history with 'sender' and 'text' keys
             query: Current user query
             use_rag: Whether to enhance query with RAG context
+            collection_name: Vector store collection to use for RAG
+            use_colbert: Whether to use ColBERT reranking
 
         Returns:
             List of messages with 'role' and 'content' keys
@@ -109,7 +119,11 @@ class ChatService:
         messages = MessageConverter.history_to_llm_messages(history)
 
         if self.rag_enabled and use_rag:
-            enhanced_query = await get_rag_context_prefix(query)
+            enhanced_query = await get_rag_context_prefix(
+                query,
+                collection_name=collection_name,
+                use_colbert=use_colbert,
+            )
             final_query = enhanced_query or query
         else:
             final_query = query

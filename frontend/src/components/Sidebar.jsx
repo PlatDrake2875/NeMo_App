@@ -242,6 +242,23 @@ export function Sidebar({
           <Shield className="h-4 w-4" />
           Guardrails
         </Button>
+        <Button
+          onClick={toggleTheme}
+          className="w-full justify-start gap-2"
+          variant="outline"
+        >
+          {isDarkMode ? (
+            <>
+              <Sun className="h-4 w-4" />
+              Light Mode
+            </>
+          ) : (
+            <>
+              <Moon className="h-4 w-4" />
+              Dark Mode
+            </>
+          )}
+        </Button>
       </div>
 
       <Separator />
@@ -426,173 +443,6 @@ export function Sidebar({
         </ScrollArea>
       </div>
 
-      <Separator />
-
-      {/* Bottom Sections */}
-      <div className="p-4 space-y-4 overflow-y-auto scrollbar-thin max-h-[400px]">
-        {/* PDF Upload Section */}
-        <Card>
-          <CardHeader className="p-4 pb-3">
-            <CardTitle className="text-sm">Upload Document</CardTitle>
-            <CardDescription className="text-xs">
-              Upload a PDF file to the knowledge base
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 space-y-2">
-            <input
-              type="file"
-              ref={pdfFileInputRef}
-              onChange={handlePdfFileChange}
-              accept=".pdf,application/pdf"
-              className="hidden"
-              id="pdf-upload-input"
-            />
-            <label htmlFor="pdf-upload-input">
-              <div className="flex items-center justify-center w-full h-20 border-2 border-dashed rounded-md cursor-pointer hover:border-primary transition-colors">
-                <div className="text-center">
-                  <FileUp className="h-6 w-6 mx-auto mb-1 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">
-                    {selectedPdfFile
-                      ? selectedPdfFile.name.substring(0, 25) +
-                        (selectedPdfFile.name.length > 25 ? "..." : "")
-                      : "Click to select PDF"}
-                  </p>
-                </div>
-              </div>
-            </label>
-            <Button
-              onClick={handlePdfUploadClick}
-              disabled={isUploadingPdf || !selectedPdfFile}
-              className="w-full"
-              size="sm"
-            >
-              {isUploadingPdf ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload PDF
-                </>
-              )}
-            </Button>
-            {pdfUploadStatus && (
-              <p
-                className={cn(
-                  "text-xs",
-                  pdfUploadStatus.success
-                    ? "text-primary"
-                    : "text-destructive"
-                )}
-              >
-                {pdfUploadStatus.message}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Automation Section */}
-        <Card>
-          <CardHeader className="p-4 pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">Automate</CardTitle>
-              <input
-                type="file"
-                ref={automationFileInputRef}
-                onChange={handleJsonFileChange}
-                accept=".json,application/json"
-                className="hidden"
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handleUploadJsonClick}
-                disabled={isSubmitting}
-                className="h-7 text-xs"
-              >
-                <Upload className="h-3 w-3 mr-1" />
-                Upload JSON
-              </Button>
-            </div>
-            <CardDescription className="text-xs">
-              Run automated conversation sequences
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 space-y-2">
-            <textarea
-              className={cn(
-                "w-full px-3 py-2 text-xs font-mono rounded-md border border-input bg-background",
-                "focus:outline-none focus:ring-2 focus:ring-ring",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-                "resize-none"
-              )}
-              value={automationJson}
-              onChange={(e) => setAutomationJson(e.target.value)}
-              rows={4}
-              placeholder='{ "inputs": ["Hello!", "Tell me a joke."] }'
-              disabled={isSubmitting}
-            />
-            {automationError && (
-              <p className="text-xs text-destructive" role="alert">
-                {automationError}
-              </p>
-            )}
-            <Button
-              onClick={handleAutomationSubmit}
-              disabled={
-                isSubmitting || !activeSessionId || !selectedModel || !isInitialized
-              }
-              className="w-full"
-              size="sm"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Running...
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-4 w-4" />
-                  Run Automation
-                </>
-              )}
-            </Button>
-            {!selectedModel && activeSessionId && isInitialized && (
-              <p className="text-xs text-muted-foreground">
-                Select a model above
-              </p>
-            )}
-            {!activeSessionId && isInitialized && (
-              <p className="text-xs text-muted-foreground">
-                Create or select a chat
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Theme Toggle */}
-        <Separator className="my-2" />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleTheme}
-          className="w-full justify-start gap-2"
-        >
-          {isDarkMode ? (
-            <>
-              <Sun className="h-4 w-4" />
-              Light Mode
-            </>
-          ) : (
-            <>
-              <Moon className="h-4 w-4" />
-              Dark Mode
-            </>
-          )}
-        </Button>
-      </div>
     </aside>
   );
 }
