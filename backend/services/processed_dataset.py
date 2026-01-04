@@ -3,6 +3,7 @@ Processed Dataset Service - Business logic for processed dataset management.
 Coordinates with preprocessing pipeline and vector stores.
 """
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -562,6 +563,28 @@ class ProcessedDatasetService:
                 logger.error(f"Error deleting Qdrant collection: {e}")
                 raise
 
+    def _compute_config_hash(self, dataset: ProcessedDataset) -> str:
+        """
+        Compute a short hash representing the processing configuration.
+
+        Hash is based on: raw_dataset_id, embedder, chunking settings.
+        This allows identifying datasets with the same processing config.
+        """
+        config = dataset.preprocessing_config or {}
+        chunking = config.get("chunking", {})
+
+        # Create a deterministic string from key config values
+        config_str = (
+            f"raw:{dataset.raw_dataset_id}|"
+            f"emb:{dataset.embedder_model_name}|"
+            f"chunk:{chunking.get('method', 'recursive')}|"
+            f"size:{chunking.get('chunk_size', 1000)}|"
+            f"overlap:{chunking.get('chunk_overlap', 200)}"
+        )
+
+        # Generate short hash (first 8 chars of SHA256)
+        return hashlib.sha256(config_str.encode()).hexdigest()[:8]
+
     def _to_dataset_info(
         self, dataset: ProcessedDataset, raw_dataset_name: Optional[str] = None
     ) -> ProcessedDatasetInfo:
@@ -593,6 +616,7 @@ class ProcessedDatasetService:
             updated_at=dataset.updated_at,
             document_count=dataset.document_count,
             chunk_count=dataset.chunk_count,
+            config_hash=self._compute_config_hash(dataset),
         )
 
 

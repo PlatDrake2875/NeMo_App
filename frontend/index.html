@@ -5,6 +5,31 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Assistant</title>
+    <script>
+      // Apply theme immediately before React loads to prevent flash
+      (function() {
+        try {
+          var darkMode = localStorage.getItem('darkMode');
+          if (darkMode === 'true') {
+            document.documentElement.classList.add('dark-mode');
+            document.documentElement.style.colorScheme = 'dark';
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* Prevent flash by setting initial background based on theme */
+      html.dark-mode {
+        background-color: hsl(240 10% 3.9%);
+      }
+      html:not(.dark-mode) {
+        background-color: hsl(0 0% 100%);
+      }
+      /* Hide content until styles are loaded */
+      body {
+        visibility: hidden;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

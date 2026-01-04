@@ -7,9 +7,7 @@ import {
   CardTitle,
 } from "../../ui/card";
 import { Button } from "../../ui/button";
-import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
-import { Textarea } from "../../ui/textarea";
 import { Switch } from "../../ui/switch";
 import { Slider } from "../../ui/slider";
 import {
@@ -34,28 +32,33 @@ import {
   ChevronRight,
   FlaskConical,
   Loader2,
-  Plus,
   Play,
   RefreshCw,
-  Save,
-  Trash2,
-  Upload,
-  X,
-  CheckCircle2,
-  XCircle,
   AlertCircle,
+  Database,
+  Trash2,
+  Download,
+  History,
+  Eye,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
 
+// Available embedding models
+const AVAILABLE_EMBEDDERS = [
+  { value: "sentence-transformers/all-MiniLM-L6-v2", label: "all-MiniLM-L6-v2", description: "Default, Fast (384d)" },
+  { value: "sentence-transformers/all-mpnet-base-v2", label: "all-mpnet-base-v2", description: "Higher accuracy (768d)" },
+  { value: "BAAI/bge-small-en-v1.5", label: "bge-small-en-v1.5", description: "BGE Small (384d)" },
+  { value: "BAAI/bge-base-en-v1.5", label: "bge-base-en-v1.5", description: "BGE Base (768d)" },
+  { value: "nomic-ai/nomic-embed-text-v1", label: "nomic-embed-text-v1", description: "Nomic, Long context (768d)" },
+];
+
+// Available reranking strategies
+const AVAILABLE_RERANKERS = [
+  { value: "none", label: "None", description: "No reranking, vector similarity only" },
+  { value: "colbert", label: "ColBERT", description: "Two-stage retrieval with semantic reranking" },
+];
+
 export function EvaluationPage() {
-  // Evaluation dataset state
-  const [evalDatasets, setEvalDatasets] = useState([]);
-  const [selectedEvalDataset, setSelectedEvalDataset] = useState(null);
-  const [newDatasetName, setNewDatasetName] = useState("");
-  const [qaPairs, setQaPairs] = useState([
-    { query: "", groundTruth: "" },
-  ]);
-  const [isCreatingDataset, setIsCreatingDataset] = useState(false);
 
   // Available collections for RAG
   const [collections, setCollections] = useState([]);
@@ -65,7 +68,9 @@ export function EvaluationPage() {
   const [config, setConfig] = useState({
     collection: "",
     enableRag: true,
-    enableColbert: true,
+    embedder: "sentence-transformers/all-MiniLM-L6-v2",
+    reranker: "colbert",
+    enableReranking: true,
     topK: 5,
     temperature: 0.1,
   });
@@ -76,12 +81,28 @@ export function EvaluationPage() {
   const [results, setResults] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
 
-  // Fetch evaluation datasets and collections on mount
+  // Auto-creation state for new collections
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false);
+  const [creationStatus, setCreationStatus] = useState("");
+  const [pendingEmbedderCreation, setPendingEmbedderCreation] = useState(null);
+
+  // Evaluation dataset state
+  const [evalDatasets, setEvalDatasets] = useState([]);
+  const [selectedEvalDataset, setSelectedEvalDataset] = useState("none");
+
+  // Evaluation history state
+  const [evaluationRuns, setEvaluationRuns] = useState([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [currentRunId, setCurrentRunId] = useState(null);
+
+  // Fetch collections, eval datasets, and evaluation runs on mount
   useEffect(() => {
-    fetchEvalDatasets();
     fetchCollections();
+    fetchEvalDatasets();
+    fetchEvaluationRuns();
   }, []);
 
+  // Fetch evaluation datasets
   const fetchEvalDatasets = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets`);
@@ -90,9 +111,93 @@ export function EvaluationPage() {
         setEvalDatasets(data);
       }
     } catch (err) {
-      console.error("Error fetching evaluation datasets:", err);
+      console.error("Error fetching eval datasets:", err);
     }
   };
+
+  // Fetch past evaluation runs
+  const fetchEvaluationRuns = async () => {
+    setRunsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs`);
+      if (response.ok) {
+        const data = await response.json();
+        setEvaluationRuns(data);
+      }
+    } catch (err) {
+      console.error("Error fetching evaluation runs:", err);
+    } finally {
+      setRunsLoading(false);
+    }
+  };
+
+  // Load a past evaluation run
+  const loadEvaluationRun = async (runId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setResults({
+          results: data.results,
+          metrics: data.metrics,
+          config: data.config,
+        });
+        setCurrentRunId(runId);
+        setExpandedRows({});
+      }
+    } catch (err) {
+      console.error("Error loading evaluation run:", err);
+      alert("Failed to load evaluation run");
+    }
+  };
+
+  // Export evaluation run as CSV
+  const exportRunAsCSV = (runId) => {
+    window.open(`${API_BASE_URL}/api/evaluation/runs/${runId}/csv`, "_blank");
+  };
+
+  // Delete an evaluation run
+  const deleteEvaluationRun = async (runId) => {
+    if (!confirm("Are you sure you want to delete this evaluation run?")) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        fetchEvaluationRuns();
+        if (currentRunId === runId) {
+          setResults(null);
+          setCurrentRunId(null);
+        }
+      }
+    } catch (err) {
+      console.error("Error deleting evaluation run:", err);
+    }
+  };
+
+  // Delete evaluation dataset
+  const deleteEvalDataset = async (datasetId) => {
+    if (!confirm("Are you sure you want to delete this evaluation dataset?")) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets/${datasetId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        await fetchEvalDatasets();
+        if (selectedEvalDataset === datasetId) {
+          setSelectedEvalDataset("");
+        }
+      }
+    } catch (err) {
+      console.error("Error deleting eval dataset:", err);
+    }
+  };
+
 
   const fetchCollections = async () => {
     setCollectionsLoading(true);
@@ -119,76 +224,8 @@ export function EvaluationPage() {
     }
   };
 
-  // Q&A pair management
-  const addQaPair = () => {
-    setQaPairs([...qaPairs, { query: "", groundTruth: "" }]);
-  };
-
-  const removeQaPair = (index) => {
-    if (qaPairs.length > 1) {
-      setQaPairs(qaPairs.filter((_, i) => i !== index));
-    }
-  };
-
-  const updateQaPair = (index, field, value) => {
-    const updated = [...qaPairs];
-    updated[index][field] = value;
-    setQaPairs(updated);
-  };
-
-  // Create evaluation dataset
-  const createEvalDataset = async () => {
-    if (!newDatasetName.trim()) {
-      alert("Please enter a dataset name");
-      return;
-    }
-
-    const validPairs = qaPairs.filter(
-      (p) => p.query.trim() && p.groundTruth.trim()
-    );
-    if (validPairs.length === 0) {
-      alert("Please add at least one Q&A pair with both query and ground truth");
-      return;
-    }
-
-    setIsCreatingDataset(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newDatasetName.trim(),
-          pairs: validPairs.map((p) => ({
-            query: p.query.trim(),
-            ground_truth: p.groundTruth.trim(),
-          })),
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setEvalDatasets([...evalDatasets, data]);
-        setSelectedEvalDataset(data.id);
-        setNewDatasetName("");
-        setQaPairs([{ query: "", groundTruth: "" }]);
-      } else {
-        const error = await response.json();
-        alert(`Error creating dataset: ${error.detail}`);
-      }
-    } catch (err) {
-      console.error("Error creating evaluation dataset:", err);
-      alert("Failed to create evaluation dataset");
-    } finally {
-      setIsCreatingDataset(false);
-    }
-  };
-
-  // Run evaluation
+  // Run evaluation (creates collection first if embedder mismatch)
   const runEvaluation = async () => {
-    if (!selectedEvalDataset) {
-      alert("Please select an evaluation dataset");
-      return;
-    }
     if (!config.collection) {
       alert("Please select a document collection");
       return;
@@ -198,15 +235,46 @@ export function EvaluationPage() {
     setEvaluationProgress(0);
     setResults(null);
 
+    let collectionToUse = config.collection;
+
     try {
+      // Check if we need to create a new collection first
+      const mismatch = getEmbedderMismatch();
+      const alternative = findAlternativeCollection();
+
+      if (mismatch && !alternative) {
+        // Need to create new collection with selected embedder
+        const selectedCol = getSelectedCollection();
+        if (selectedCol) {
+          setCreationStatus("Creating collection with new embedder...");
+          const newCollection = await autoCreateCollectionAndWait(selectedCol, config.embedder);
+          if (newCollection) {
+            collectionToUse = newCollection.collection_name;
+            // Update config to use new collection
+            setConfig(prev => ({ ...prev, collection: collectionToUse }));
+          } else {
+            throw new Error("Failed to create collection with selected embedder");
+          }
+        }
+      } else if (mismatch && alternative) {
+        // Use the alternative collection
+        collectionToUse = alternative.collection_name;
+        setConfig(prev => ({ ...prev, collection: collectionToUse }));
+      }
+
+      setCreationStatus("");
+
+      // Now run the evaluation
       const response = await fetch(`${API_BASE_URL}/api/evaluation/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          eval_dataset_id: selectedEvalDataset,
-          collection_name: config.collection,
+          eval_dataset_id: selectedEvalDataset === "none" ? null : selectedEvalDataset,
+          collection_name: collectionToUse,
           use_rag: config.enableRag,
-          use_colbert: config.enableColbert,
+          embedder: config.embedder,
+          reranker: config.reranker,
+          use_colbert: config.reranker === "colbert" && config.enableReranking,
           top_k: config.topK,
           temperature: config.temperature,
         }),
@@ -215,16 +283,108 @@ export function EvaluationPage() {
       if (response.ok) {
         const data = await response.json();
         setResults(data);
+        // Refresh evaluation runs list to include the new run
+        fetchEvaluationRuns();
       } else {
         const error = await response.json();
-        alert(`Evaluation failed: ${error.detail}`);
+        const errorMsg = error.detail || error.message || JSON.stringify(error);
+        alert(`Evaluation failed: ${errorMsg}`);
       }
     } catch (err) {
       console.error("Error running evaluation:", err);
-      alert("Failed to run evaluation");
+      alert(`Failed to run evaluation: ${err.message}`);
     } finally {
       setIsEvaluating(false);
+      setCreationStatus("");
       setEvaluationProgress(100);
+    }
+  };
+
+  // Create collection and wait for completion (returns the new collection or null)
+  const autoCreateCollectionAndWait = async (sourceCollection, newEmbedder) => {
+    if (!sourceCollection || !sourceCollection.raw_dataset_id) {
+      console.error("Cannot create collection: no source raw dataset");
+      return null;
+    }
+
+    setIsCreatingCollection(true);
+    setPendingEmbedderCreation(newEmbedder);
+
+    try {
+      const embedderShort = newEmbedder.split("/").pop().replace(/-/g, "_");
+      const newName = `${sourceCollection.name}_${embedderShort}`;
+
+      setCreationStatus("Initializing dataset...");
+      const createResponse = await fetch(`${API_BASE_URL}/api/processed-datasets?start_processing=true`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newName,
+          description: `Auto-created from ${sourceCollection.name} with ${embedderShort}`,
+          raw_dataset_id: sourceCollection.raw_dataset_id,
+          vector_backend: sourceCollection.vector_backend || "pgvector",
+          embedder_config: {
+            model_name: newEmbedder,
+            model_type: "huggingface",
+            model_kwargs: newEmbedder.includes("nomic") ? { trust_remote_code: true } : {},
+          },
+          preprocessing_config: sourceCollection.preprocessing_config || {
+            cleaning: { enabled: false },
+            llm_metadata: { enabled: false },
+            chunking: {
+              method: "recursive",
+              chunk_size: 1000,
+              chunk_overlap: 200,
+            },
+          },
+        }),
+      });
+
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.detail || "Failed to create dataset");
+      }
+
+      const newDataset = await createResponse.json();
+      setCreationStatus("Processing documents...");
+
+      // Poll for completion
+      let completed = false;
+      let attempts = 0;
+      const maxAttempts = 300; // 5 minutes max
+
+      while (!completed && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        attempts++;
+
+        const statusResponse = await fetch(`${API_BASE_URL}/api/processed-datasets/${newDataset.id}/status`);
+        if (statusResponse.ok) {
+          const status = await statusResponse.json();
+          setCreationStatus(`Processing... ${status.current_step || ""}`);
+
+          if (status.status === "completed") {
+            completed = true;
+          } else if (status.status === "failed") {
+            throw new Error(status.error || "Processing failed");
+          }
+        }
+      }
+
+      if (!completed) {
+        throw new Error("Processing timed out");
+      }
+
+      // Refresh collections list
+      await fetchCollections();
+
+      return newDataset;
+
+    } catch (err) {
+      console.error("Error creating collection:", err);
+      throw err;
+    } finally {
+      setIsCreatingCollection(false);
+      setPendingEmbedderCreation(null);
     }
   };
 
@@ -250,6 +410,56 @@ export function EvaluationPage() {
     return "destructive";
   };
 
+  // Get the selected collection's full info
+  const getSelectedCollection = () => {
+    if (!config.collection || config.collection === "rag_documents") return null;
+    return collections.find(c => c.collection_name === config.collection);
+  };
+
+  // Normalize embedder name for comparison (handle prefix variations)
+  const normalizeEmbedderName = (name) => {
+    if (!name) return "";
+    // Extract just the model name (last part after /)
+    return name.split("/").pop().toLowerCase();
+  };
+
+  // Check if selected embedder matches the collection's embedder
+  const getEmbedderMismatch = () => {
+    const selectedCol = getSelectedCollection();
+    if (!selectedCol) return null;
+
+    const collectionEmbedder = selectedCol.embedder_config?.model_name;
+    if (!collectionEmbedder) return null;
+
+    // Compare normalized names (handles "all-MiniLM-L6-v2" vs "sentence-transformers/all-MiniLM-L6-v2")
+    const normalizedCollection = normalizeEmbedderName(collectionEmbedder);
+    const normalizedSelected = normalizeEmbedderName(config.embedder);
+
+    if (normalizedCollection !== normalizedSelected) {
+      return {
+        collectionEmbedder,
+        selectedEmbedder: config.embedder,
+        collectionName: selectedCol.name,
+      };
+    }
+    return null;
+  };
+
+  // Find alternative collection with the selected embedder (same raw dataset)
+  const findAlternativeCollection = () => {
+    const selectedCol = getSelectedCollection();
+    if (!selectedCol) return null;
+
+    const normalizedSelected = normalizeEmbedderName(config.embedder);
+
+    return collections.find(col =>
+      col.id !== selectedCol.id &&
+      col.raw_dataset_id === selectedCol.raw_dataset_id &&
+      normalizeEmbedderName(col.embedder_config?.model_name) === normalizedSelected &&
+      col.processing_status === "completed"
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -269,126 +479,7 @@ export function EvaluationPage() {
         </Button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Left Column: Evaluation Dataset */}
-        <div className="space-y-6">
-          {/* Select Existing Dataset */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Evaluation Dataset</CardTitle>
-              <CardDescription>
-                Select an existing dataset or create a new one with Q&A pairs
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Select Dataset</Label>
-                <Select
-                  value={selectedEvalDataset || ""}
-                  onValueChange={setSelectedEvalDataset}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select evaluation dataset..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {evalDatasets.map((dataset) => (
-                      <SelectItem key={dataset.id} value={dataset.id}>
-                        {dataset.name} ({dataset.pair_count} pairs)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
-              {/* Create New Dataset */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Create New Dataset</h4>
-                <div className="space-y-2">
-                  <Label>Dataset Name</Label>
-                  <Input
-                    placeholder="e.g., colbert-test-set"
-                    value={newDatasetName}
-                    onChange={(e) => setNewDatasetName(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Q&A Pairs</Label>
-                    <Button variant="outline" size="sm" onClick={addQaPair}>
-                      <Plus className="h-4 w-4 mr-1" />
-                      Add Pair
-                    </Button>
-                  </div>
-
-                  <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                    {qaPairs.map((pair, index) => (
-                      <div
-                        key={index}
-                        className="relative border rounded-lg p-3 space-y-2"
-                      >
-                        <div className="absolute top-2 right-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => removeQaPair(index)}
-                            disabled={qaPairs.length === 1}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="space-y-1 pr-8">
-                          <Label className="text-xs text-muted-foreground">
-                            Question {index + 1}
-                          </Label>
-                          <Input
-                            placeholder="Enter question..."
-                            value={pair.query}
-                            onChange={(e) =>
-                              updateQaPair(index, "query", e.target.value)
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">
-                            Ground Truth
-                          </Label>
-                          <Textarea
-                            placeholder="Enter expected answer..."
-                            value={pair.groundTruth}
-                            onChange={(e) =>
-                              updateQaPair(index, "groundTruth", e.target.value)
-                            }
-                            rows={2}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <Button
-                  className="w-full"
-                  onClick={createEvalDataset}
-                  disabled={isCreatingDataset}
-                >
-                  {isCreatingDataset ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-2" />
-                  )}
-                  Create Dataset
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column: Configuration */}
-        <div className="space-y-6">
+      <div className="max-w-2xl mx-auto space-y-6">
           {/* Hyperparameter Configuration */}
           <Card>
             <CardHeader>
@@ -417,93 +508,275 @@ export function EvaluationPage() {
                     </SelectItem>
                     {collections.map((col) => (
                       <SelectItem key={col.id} value={col.collection_name}>
-                        {col.name} ({col.chunk_count} chunks)
+                        <div className="flex items-center gap-2">
+                          <span>{col.name}</span>
+                          <span className="text-muted-foreground">
+                            ({col.chunk_count} chunks)
+                          </span>
+                          {col.config_hash && (
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 font-mono">
+                              {col.config_hash}
+                            </Badge>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {/* Show selected collection's embedder info */}
+                {config.collection && config.collection !== "rag_documents" && (
+                  <p className="text-xs text-muted-foreground">
+                    Indexed with: {
+                      collections.find(c => c.collection_name === config.collection)?.embedder_config?.model_name?.split("/").pop() || "unknown"
+                    }
+                  </p>
+                )}
               </div>
 
-              <Separator />
+              {/* === RAG Activation Section === */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Separator className="flex-1" />
+                  <span className="text-xs text-muted-foreground font-medium px-2">RAG Activation</span>
+                  <Separator className="flex-1" />
+                </div>
 
-              {/* RAG Toggle */}
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable RAG</Label>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Enable RAG</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Retrieve documents to augment responses
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.enableRag}
+                    onCheckedChange={(checked) =>
+                      setConfig((prev) => ({ ...prev, enableRag: checked }))
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* === Embedders & Rerankers Section === */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Separator className="flex-1" />
+                  <span className="text-xs text-muted-foreground font-medium px-2">Embedders & Rerankers</span>
+                  <Separator className="flex-1" />
+                </div>
+
+                {/* Embedding Model Select */}
+                <div className="space-y-2">
+                  <Label>Embedding Model</Label>
+                  <Select
+                    value={config.embedder}
+                    onValueChange={(value) =>
+                      setConfig((prev) => ({ ...prev, embedder: value }))
+                    }
+                    disabled={!config.enableRag}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select embedder..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AVAILABLE_EMBEDDERS.map((emb) => (
+                        <SelectItem key={emb.value} value={emb.value}>
+                          {emb.label} - {emb.description}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
-                    Retrieve documents to augment responses
+                    Converts text to vectors for similarity search
+                  </p>
+                  {/* Embedder mismatch warning */}
+                  {(() => {
+                    const mismatch = getEmbedderMismatch();
+                    const alternative = findAlternativeCollection();
+
+                    if (!mismatch) return null;
+
+                    return (
+                      <div className="space-y-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-md">
+                        <div className="flex items-start gap-2 text-xs text-yellow-600 dark:text-yellow-500">
+                          <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-medium">Embedder mismatch</p>
+                            <p>
+                              "{mismatch.collectionName}" was indexed with{" "}
+                              <span className="font-mono">{mismatch.collectionEmbedder.split("/").pop()}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        {alternative ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full text-xs h-7"
+                            onClick={() => setConfig(prev => ({ ...prev, collection: alternative.collection_name }))}
+                          >
+                            Use "{alternative.name}" ({alternative.config_hash})
+                          </Button>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            A new collection will be created when you run evaluation.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Reranking Strategy Select */}
+                <div className="space-y-2">
+                  <Label>Reranking Strategy</Label>
+                  <Select
+                    value={config.reranker}
+                    onValueChange={(value) =>
+                      setConfig((prev) => ({ ...prev, reranker: value }))
+                    }
+                    disabled={!config.enableRag}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select reranker..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AVAILABLE_RERANKERS.map((rr) => (
+                        <SelectItem key={rr.value} value={rr.value}>
+                          {rr.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Enable Reranking Toggle (only shown if reranker != "none") */}
+                {config.reranker !== "none" && (
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Enable Reranking</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {AVAILABLE_RERANKERS.find(r => r.value === config.reranker)?.description}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={config.enableReranking}
+                      onCheckedChange={(checked) =>
+                        setConfig((prev) => ({ ...prev, enableReranking: checked }))
+                      }
+                      disabled={!config.enableRag}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* === Retrieval Settings Section === */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Separator className="flex-1" />
+                  <span className="text-xs text-muted-foreground font-medium px-2">Retrieval Settings</span>
+                  <Separator className="flex-1" />
+                </div>
+
+                {/* Top-K Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Top-K Results</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {config.topK}
+                    </span>
+                  </div>
+                  <Slider
+                    value={[config.topK]}
+                    onValueChange={([value]) =>
+                      setConfig((prev) => ({ ...prev, topK: value }))
+                    }
+                    min={1}
+                    max={20}
+                    step={1}
+                    disabled={!config.enableRag}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Number of documents to retrieve
                   </p>
                 </div>
-                <Switch
-                  checked={config.enableRag}
-                  onCheckedChange={(checked) =>
-                    setConfig((prev) => ({ ...prev, enableRag: checked }))
-                  }
-                />
-              </div>
 
-              {/* ColBERT Toggle */}
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable ColBERT Reranking</Label>
+                {/* Temperature Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Temperature</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {config.temperature.toFixed(1)}
+                    </span>
+                  </div>
+                  <Slider
+                    value={[config.temperature * 10]}
+                    onValueChange={([value]) =>
+                      setConfig((prev) => ({ ...prev, temperature: value / 10 }))
+                    }
+                    min={0}
+                    max={10}
+                    step={1}
+                  />
                   <p className="text-xs text-muted-foreground">
-                    Two-stage retrieval with semantic reranking
+                    LLM response randomness (0 = deterministic)
                   </p>
                 </div>
-                <Switch
-                  checked={config.enableColbert}
-                  onCheckedChange={(checked) =>
-                    setConfig((prev) => ({ ...prev, enableColbert: checked }))
-                  }
-                  disabled={!config.enableRag}
-                />
               </div>
+            </CardContent>
+          </Card>
 
-              <Separator />
+          {/* Evaluation Dataset Selection Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Evaluation Dataset
+              </CardTitle>
+              <CardDescription>
+                Select a Q&A dataset to evaluate against (optional)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Select
+                  value={selectedEvalDataset}
+                  onValueChange={setSelectedEvalDataset}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Quick test (no ground truth)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Quick test (no ground truth)</SelectItem>
+                    {evalDatasets.map((dataset) => (
+                      <SelectItem key={dataset.id} value={dataset.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{dataset.name}</span>
+                          <span className="text-muted-foreground">
+                            ({dataset.pair_count} pairs)
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-              {/* Top-K Slider */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Top-K Results</Label>
-                  <span className="text-sm text-muted-foreground">
-                    {config.topK}
-                  </span>
-                </div>
-                <Slider
-                  value={[config.topK]}
-                  onValueChange={([value]) =>
-                    setConfig((prev) => ({ ...prev, topK: value }))
-                  }
-                  min={1}
-                  max={20}
-                  step={1}
-                  disabled={!config.enableRag}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Number of documents to retrieve
-                </p>
-              </div>
-
-              {/* Temperature Slider */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Temperature</Label>
-                  <span className="text-sm text-muted-foreground">
-                    {config.temperature.toFixed(1)}
-                  </span>
-                </div>
-                <Slider
-                  value={[config.temperature * 10]}
-                  onValueChange={([value]) =>
-                    setConfig((prev) => ({ ...prev, temperature: value / 10 }))
-                  }
-                  min={0}
-                  max={10}
-                  step={1}
-                />
-                <p className="text-xs text-muted-foreground">
-                  LLM response randomness (0 = deterministic)
-                </p>
+                {selectedEvalDataset !== "none" && (
+                  <div className="flex items-center justify-between p-2 bg-muted rounded-md">
+                    <p className="text-xs text-muted-foreground">
+                      {evalDatasets.find(d => d.id === selectedEvalDataset)?.pair_count || 0} Q&A pairs will be evaluated
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-destructive"
+                      onClick={() => deleteEvalDataset(selectedEvalDataset)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -513,22 +786,108 @@ export function EvaluationPage() {
             className="w-full"
             size="lg"
             onClick={runEvaluation}
-            disabled={isEvaluating || !selectedEvalDataset || !config.collection}
+            disabled={isEvaluating || !config.collection}
           >
             {isEvaluating ? (
               <>
                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                Running Evaluation...
+                {creationStatus || "Running Evaluation..."}
               </>
             ) : (
               <>
                 <Play className="h-5 w-5 mr-2" />
-                Run Evaluation
+                Run Evaluation {selectedEvalDataset !== "none" ? `(${evalDatasets.find(d => d.id === selectedEvalDataset)?.pair_count || 0} pairs)` : "(Quick Test)"}
               </>
             )}
           </Button>
-        </div>
       </div>
+
+      {/* Evaluation History */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              <CardTitle className="text-lg">Evaluation History</CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchEvaluationRuns}
+              disabled={runsLoading}
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${runsLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+          <CardDescription>
+            Past evaluation runs are saved automatically. Load or export as CSV.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {evaluationRuns.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No evaluation runs yet. Run an evaluation to see results here.
+            </p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {evaluationRuns.map((run) => (
+                <div
+                  key={run.id}
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    currentRunId === run.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{run.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {run.pair_count} pairs
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>{new Date(run.created_at).toLocaleString()}</span>
+                      {run.metrics && (
+                        <>
+                          <span>Correctness: {((run.metrics.answer_correctness || 0) * 100).toFixed(0)}%</span>
+                          <span>Faithful: {((run.metrics.faithfulness || 0) * 100).toFixed(0)}%</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 ml-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => loadEvaluationRun(run.id)}
+                      title="Load results"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => exportRunAsCSV(run.id)}
+                      title="Export as CSV"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteEvaluationRun(run.id)}
+                      title="Delete"
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Results Section */}
       {results && (
@@ -544,17 +903,17 @@ export function EvaluationPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-5">
                 <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">
-                    Avg. Answer Relevancy
+                  <p className="text-sm text-muted-foreground mb-1" title="F1 factual similarity + semantic similarity">
+                    Avg. Answer Correctness
                   </p>
-                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.answer_relevancy || 0)}`}>
-                    {((results.metrics?.answer_relevancy || 0) * 100).toFixed(1)}%
+                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.answer_correctness || 0)}`}>
+                    {((results.metrics?.answer_correctness || 0) * 100).toFixed(1)}%
                   </p>
                 </div>
                 <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1" title="Claims in answer supported by retrieved context">
                     Avg. Faithfulness
                   </p>
                   <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.faithfulness || 0)}`}>
@@ -562,7 +921,15 @@ export function EvaluationPage() {
                   </p>
                 </div>
                 <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1" title="Embedding similarity between query and answer">
+                    Avg. Answer Relevancy
+                  </p>
+                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.answer_relevancy || 0)}`}>
+                    {((results.metrics?.answer_relevancy || 0) * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-muted rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-1" title="Retrieval ranking quality (mean precision@k)">
                     Avg. Context Precision
                   </p>
                   <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.context_precision || 0)}`}>
@@ -584,10 +951,24 @@ export function EvaluationPage() {
           {/* Results Table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Detailed Results</CardTitle>
-              <CardDescription>
-                Click on a row to expand and see retrieved context
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg">Detailed Results</CardTitle>
+                  <CardDescription>
+                    Click on a row to expand and see retrieved context
+                  </CardDescription>
+                </div>
+                {currentRunId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => exportRunAsCSV(currentRunId)}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -597,7 +978,10 @@ export function EvaluationPage() {
                     <TableHead>Query</TableHead>
                     <TableHead>Predicted Answer</TableHead>
                     <TableHead>Ground Truth</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
+                    <TableHead className="text-right" title="Jaccard: Word overlap between predicted and ground truth">Jaccard</TableHead>
+                    <TableHead className="text-right" title="Answer Correctness: F1 factual + semantic similarity">Correctness</TableHead>
+                    <TableHead className="text-right" title="Faithfulness: Claims supported by retrieved context">Faithful</TableHead>
+                    <TableHead className="text-right" title="Context Precision: Retrieval ranking quality">Ctx Prec</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -629,10 +1013,25 @@ export function EvaluationPage() {
                             {((result.score || 0) * 100).toFixed(0)}%
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={getScoreBadge(result.scores?.answer_correctness || 0)}>
+                            {((result.scores?.answer_correctness || 0) * 100).toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={getScoreBadge(result.scores?.faithfulness || 0)}>
+                            {((result.scores?.faithfulness || 0) * 100).toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={getScoreBadge(result.scores?.context_precision || 0)}>
+                            {((result.scores?.context_precision || 0) * 100).toFixed(0)}%
+                          </Badge>
+                        </TableCell>
                       </TableRow>
                       {expandedRows[index] && (
                         <TableRow key={`${index}-expanded`}>
-                          <TableCell colSpan={5} className="bg-muted/30">
+                          <TableCell colSpan={8} className="bg-muted/30">
                             <div className="p-4 space-y-4">
                               <div>
                                 <h4 className="font-medium mb-2">Full Query</h4>
@@ -715,8 +1114,11 @@ export function EvaluationPage() {
                 <Badge variant={results.config?.use_rag ? "default" : "secondary"}>
                   RAG: {results.config?.use_rag ? "ON" : "OFF"}
                 </Badge>
+                <Badge variant="outline">
+                  Embedder: {(results.config?.embedder || config.embedder).split("/").pop()}
+                </Badge>
                 <Badge variant={results.config?.use_colbert ? "default" : "secondary"}>
-                  ColBERT: {results.config?.use_colbert ? "ON" : "OFF"}
+                  Reranker: {results.config?.use_colbert ? "ColBERT" : "None"}
                 </Badge>
                 <Badge variant="outline">
                   Top-K: {results.config?.top_k || config.topK}

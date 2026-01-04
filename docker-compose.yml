@@ -32,6 +32,9 @@ services:
       - VECTOR_STORE_BACKEND=${VECTOR_STORE_BACKEND:-pgvector}  # pgvector or qdrant
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      # OpenRouter configuration for Q&A generation
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_DEFAULT_MODEL=openai/gpt-4o-mini
     depends_on:
       postgres:
         condition: service_healthy

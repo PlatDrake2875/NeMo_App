@@ -53,8 +53,25 @@ function App() {
 	const [showAgentSelector, setShowAgentSelector] = useState(false);
 	const [sessionAgents, setSessionAgents] = useState({}); // Maps sessionId to agent
 
-	// --- State for View Management ---
-	const [currentView, setCurrentView] = useState("chat"); // 'chat', 'rag-hub', or 'guardrails'
+	// --- State for View Management (persisted to localStorage) ---
+	const [currentView, setCurrentView] = useState(() => {
+		const saved = localStorage.getItem("currentView");
+		return saved && ["chat", "rag-hub", "guardrails"].includes(saved) ? saved : "chat";
+	});
+	const [ragHubView, setRagHubView] = useState(() => {
+		const saved = localStorage.getItem("ragHubView");
+		const validViews = ["dashboard", "raw", "pipeline", "processed", "generate-qa", "evaluation", "huggingface"];
+		return saved && validViews.includes(saved) ? saved : "dashboard";
+	});
+
+	// Persist view state to localStorage
+	useEffect(() => {
+		localStorage.setItem("currentView", currentView);
+	}, [currentView]);
+
+	useEffect(() => {
+		localStorage.setItem("ragHubView", ragHubView);
+	}, [ragHubView]);
 
 	// --- Advanced Settings State ---
 	const [selectedDataset, setSelectedDataset] = useState("rag_documents");
@@ -171,6 +188,8 @@ function App() {
 	const handleNewChatWithAgent = useCallback(() => {
 		// Create a new chat session first
 		const _newSessionId = handleNewChat();
+		// Switch to chat view
+		setCurrentView("chat");
 		// Show agent selector for this new session
 		setShowAgentSelector(true);
 		// The original session will be active but won't have an agent yet
@@ -290,6 +309,12 @@ function App() {
 		setCurrentView("rag-hub");
 	}, []);
 
+	// Handler for RAG Hub sub-view changes (from sidebar)
+	const handleRagHubViewChange = useCallback((view) => {
+		setCurrentView("rag-hub");
+		setRagHubView(view);
+	}, []);
+
 	const handleViewGuardrails = useCallback(() => {
 		setShowAgentSelector(false); // Close agent selector to prevent overlay blocking
 		setCurrentView("guardrails");
@@ -333,6 +358,10 @@ function App() {
 					// Theme props
 					isDarkMode={isDarkMode}
 					toggleTheme={toggleTheme}
+					// RAG Hub navigation props
+					currentView={currentView}
+					ragHubView={ragHubView}
+					onRagHubViewChange={handleRagHubViewChange}
 				/>
 				{/* Main content area */}
 				<div className="flex-1 flex flex-col overflow-hidden">
@@ -348,8 +377,6 @@ function App() {
 							onImportConversation={handleImportConversation}
 							isSubmitting={isChatSubmitting}
 							onStopGeneration={stopGeneration}
-							isDarkMode={isDarkMode}
-							toggleTheme={toggleTheme}
 							availableModels={availableModels}
 							selectedModel={selectedModel}
 							onModelChange={handleModelChange}
@@ -376,7 +403,8 @@ function App() {
 						<RAGBenchmarkHub
 							onBack={handleBackToChat}
 							isDarkMode={isDarkMode}
-							toggleTheme={toggleTheme}
+							currentView={ragHubView}
+							onViewChange={setRagHubView}
 						/>
 					) : (
 						<GuardrailsEditor onBack={handleBackToChat} isDarkMode={isDarkMode} />

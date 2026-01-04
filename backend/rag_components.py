@@ -537,6 +537,7 @@ async def get_rag_context_prefix(
     query: str,
     collection_name: Optional[str] = None,
     use_colbert: Optional[bool] = None,
+    embedder: Optional[str] = None,
 ) -> Optional[str]:
     """
     Generate RAG context prefix for a query.
@@ -552,6 +553,7 @@ async def get_rag_context_prefix(
         query: The user's question
         collection_name: Optional collection name to use (defaults to COLLECTION_NAME)
         use_colbert: Optional override for ColBERT usage (defaults to COLBERT_RERANK_ENABLED)
+        embedder: Optional embedding model name to use (defaults to EMBEDDING_MODEL_NAME)
 
     Returns:
         Formatted prompt with context, or None if RAG is disabled/unavailable
@@ -572,7 +574,7 @@ async def get_rag_context_prefix(
         if effective_collection != COLLECTION_NAME:
             logger.info(f"[RAG] Using custom collection: {effective_collection}")
             retrieved_docs = await _retrieve_from_collection(
-                query, effective_collection, effective_use_colbert
+                query, effective_collection, effective_use_colbert, embedder
             )
         else:
             # Use default retriever
@@ -603,6 +605,7 @@ async def _retrieve_from_collection(
     query: str,
     collection_name: str,
     use_colbert: bool,
+    embedder: Optional[str] = None,
 ) -> List[Document]:
     """
     Retrieve documents from a specific collection.
@@ -613,6 +616,7 @@ async def _retrieve_from_collection(
         query: The user's query
         collection_name: Name of the vector store collection
         use_colbert: Whether to use ColBERT reranking
+        embedder: Optional embedding model name (defaults to EMBEDDING_MODEL_NAME)
 
     Returns:
         List of retrieved documents
@@ -620,8 +624,17 @@ async def _retrieve_from_collection(
     from langchain_huggingface import HuggingFaceEmbeddings
 
     try:
+        # Use provided embedder or fall back to config default
+        model_name = embedder or EMBEDDING_MODEL_NAME
+
+        # Handle nomic models which require trust_remote_code=True
+        model_kwargs = {"trust_remote_code": True} if "nomic" in model_name else {}
+
         # Create embedding function
-        embedding_function = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+        embedding_function = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs=model_kwargs if model_kwargs else None
+        )
 
         # Create vectorstore for the specified collection
         vectorstore = create_vectorstore(

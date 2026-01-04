@@ -13,8 +13,6 @@ export function ChatInterface({
   onImportConversation,
   isSubmitting,
   onStopGeneration,
-  isDarkMode,
-  toggleTheme,
   availableModels,
   selectedModel,
   onModelChange,
@@ -59,8 +57,6 @@ export function ChatInterface({
         clearChatHistory={onClearHistory}
         onImportConversation={onImportConversation}
         disabled={isDisabled}
-        isDarkMode={isDarkMode}
-        toggleTheme={toggleTheme}
         availableModels={availableModels}
         selectedModel={selectedModel}
         onModelChange={onModelChange}

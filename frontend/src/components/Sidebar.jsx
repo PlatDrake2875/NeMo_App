@@ -5,7 +5,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
 import { Input } from "./ui/input";
 import { Checkbox } from "./ui/checkbox";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import {
   MessageSquarePlus,
   Database,
@@ -22,8 +22,26 @@ import {
   Square,
   Sun,
   Moon,
+  ChevronDown,
+  LayoutDashboard,
+  FolderOpen,
+  GitBranch,
+  Sparkles,
+  FlaskConical,
+  Download,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+
+// RAG Hub navigation items
+const ragHubNavItems = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "raw", label: "Raw Datasets", icon: FolderOpen },
+  { id: "pipeline", label: "Preprocessing", icon: GitBranch },
+  { id: "processed", label: "Processed Datasets", icon: Database },
+  { id: "generate-qa", label: "Generate Q&A", icon: Sparkles },
+  { id: "evaluation", label: "Evaluation", icon: FlaskConical },
+  { id: "huggingface", label: "HuggingFace Import", icon: Download },
+];
 
 const formatSessionIdFallback = (sessionId) => {
   if (!sessionId) return "Chat";
@@ -49,6 +67,10 @@ export function Sidebar({
   onViewGuardrails,
   isDarkMode,
   toggleTheme,
+  // New props for RAG Hub navigation
+  currentView,
+  ragHubView,
+  onRagHubViewChange,
 }) {
   const sessionIds = isInitialized ? Object.keys(sessions) : [];
   const [automationJson, setAutomationJson] = useState(
@@ -64,6 +86,18 @@ export function Sidebar({
   // Multi-select state
   const [selectedSessions, setSelectedSessions] = useState(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+
+  // RAG Hub expanded state - auto-expand when entering RAG Hub view
+  const [isRagHubExpanded, setIsRagHubExpanded] = useState(currentView === "rag-hub");
+  const prevViewRef = useRef(currentView);
+
+  // Auto-expand only when ENTERING RAG Hub view (not continuously)
+  useEffect(() => {
+    if (currentView === "rag-hub" && prevViewRef.current !== "rag-hub") {
+      setIsRagHubExpanded(true);
+    }
+    prevViewRef.current = currentView;
+  }, [currentView]);
 
   const handleEditClick = (e, sessionId) => {
     e.stopPropagation();
@@ -226,14 +260,54 @@ export function Sidebar({
           <MessageSquarePlus className="h-4 w-4" />
           New Chat
         </Button>
-        <Button
-          onClick={onViewRAGHub}
-          className="w-full justify-start gap-2"
-          variant="outline"
-        >
-          <Database className="h-4 w-4" />
-          RAG Benchmark Hub
-        </Button>
+        {/* RAG Benchmark Hub - Collapsible */}
+        <Collapsible open={isRagHubExpanded} onOpenChange={setIsRagHubExpanded}>
+          <CollapsibleTrigger asChild>
+            <Button
+              variant={currentView === "rag-hub" ? "secondary" : "outline"}
+              className="w-full justify-between"
+              onClick={() => {
+                // Only navigate if not already in RAG Hub view
+                if (currentView !== "rag-hub") {
+                  onViewRAGHub();
+                }
+                // Toggle is handled by CollapsibleTrigger
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                RAG Benchmark Hub
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform duration-200",
+                  isRagHubExpanded && "rotate-180"
+                )}
+              />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pl-4 mt-1 space-y-1">
+            {ragHubNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentView === "rag-hub" && ragHubView === item.id;
+              return (
+                <Button
+                  key={item.id}
+                  variant={isActive ? "secondary" : "ghost"}
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start gap-2",
+                    isActive && "bg-accent"
+                  )}
+                  onClick={() => onRagHubViewChange(item.id)}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </CollapsibleContent>
+        </Collapsible>
         <Button
           onClick={onViewGuardrails}
           className="w-full justify-start gap-2"
@@ -466,6 +540,10 @@ Sidebar.propTypes = {
   onViewGuardrails: PropTypes.func,
   isDarkMode: PropTypes.bool,
   toggleTheme: PropTypes.func,
+  // New props for RAG Hub navigation
+  currentView: PropTypes.string,
+  ragHubView: PropTypes.string,
+  onRagHubViewChange: PropTypes.func,
 };
 
 export default Sidebar;

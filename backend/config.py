@@ -75,6 +75,12 @@ VLLM_MODEL_FOR_AUTOMATION = os.getenv(
 # Set to True to enable RAG features, False to disable globally
 RAG_ENABLED = os.getenv("RAG_ENABLED", "False").lower() == "true"
 
+# --- OpenRouter Configuration ---
+# OpenRouter API for Q&A generation and other LLM tasks
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_DEFAULT_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "openai/gpt-4o-mini")
+
 # --- ColBERT Configuration ---
 # ColBERT provides late-interaction retrieval for improved accuracy.
 # It can be used in two modes:

@@ -23,6 +23,7 @@ dependencies = [
     "qdrant-client",
     "psycopg[binary,pool]",
     "sentence-transformers",
+    "einops",  # Required for nomic-embed-text models
     "ragatouille",
     "psutil",  # Required by RAGatouille
     "pypdf",

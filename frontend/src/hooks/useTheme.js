@@ -10,14 +10,21 @@ export function useTheme(defaultMode = false) {
 	}, [setIsDarkMode]);
 
 	useEffect(() => {
+		// Apply to both html and body for consistency with the inline script in index.html
+		const htmlClassList = document.documentElement.classList;
 		const bodyClassList = document.body.classList;
+
 		if (isDarkMode) {
+			htmlClassList.add("dark-mode");
 			bodyClassList.add("dark-mode");
+			document.documentElement.style.colorScheme = "dark";
 		} else {
+			htmlClassList.remove("dark-mode");
 			bodyClassList.remove("dark-mode");
+			document.documentElement.style.colorScheme = "light";
 		}
-		// Cleanup function to remove the class when the component unmounts
-		// or before the effect runs again if isDarkMode changes.
+
+		// Cleanup function
 		return () => {
 			bodyClassList.remove("dark-mode");
 		};

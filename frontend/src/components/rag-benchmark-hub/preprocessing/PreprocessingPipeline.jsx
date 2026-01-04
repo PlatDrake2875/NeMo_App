@@ -101,6 +101,7 @@ export function PreprocessingPipeline() {
             embedder_config: {
               model_name: embedderModel,
               model_type: "huggingface",
+              model_kwargs: embedderModel.includes("nomic") ? { trust_remote_code: true } : {},
             },
             preprocessing_config: {
               cleaning: {
