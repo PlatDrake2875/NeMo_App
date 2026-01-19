@@ -1,5 +1,12 @@
 import PropTypes from "prop-types";
-import { ArrowLeft } from "lucide-react";
+import {
+  ArrowLeft,
+  Database,
+  Download,
+  FolderOpen,
+  GitBranch,
+  LayoutDashboard,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { DatasetDashboard } from "./rag-benchmark-hub/DatasetDashboard";
 import { RawDatasetManager } from "./rag-benchmark-hub/raw-datasets/RawDatasetManager";
@@ -15,7 +22,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange 
       case "dashboard":
         return <DatasetDashboard onNavigate={onViewChange} />;
       case "raw":
-        return <RawDatasetManager isDarkMode={isDarkMode} />;
+        return <RawDatasetManager />;
       case "pipeline":
         return <PreprocessingPipeline />;
       case "processed":

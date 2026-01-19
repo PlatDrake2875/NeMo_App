@@ -1,76 +1,33 @@
-"""
-Schemas package - re-exports all schemas for backward compatibility.
+"""Dataset-related schemas."""
 
-This module maintains backward compatibility with the original monolithic schemas.py.
-All schemas can be imported directly from `schemas` or from their specific modules.
-
-Example:
-    # Legacy import (still works)
-    from schemas import ChatRequest, Message, EmbedderConfig
-
-    # New modular import (preferred)
-    from schemas.chat import ChatRequest
-    from schemas.common import Message
-    from schemas.datasets.registry import EmbedderConfig
-"""
-
-# Common schemas
-from schemas.common import Message, UploadResponse
-
-# Chat schemas
-from schemas.chat import (
-    LegacyChatRequest,
-    RAGChatRequest,
-    RAGChatResponse,
-    RAGStreamRequest,
-    ChatResponseToken,
-    HistoryMessage,
-    ChatRequest,
-    ChatStreamChunk,
-)
-
-# Health schemas
-from schemas.health import HealthStatusDetail, HealthResponse
-
-# Model schemas
-from schemas.models import (
-    ModelInfo,
-    OllamaModelInfo,
-    ModelValidationRequest,
-    ModelMetadataResponse,
-    ModelDownloadRequest,
-    ModelLoadRequest,
-)
-
-# Automation schemas
-from schemas.automation import AutomateRequest, AutomateResponse
-
-# Dataset schemas
-from schemas.datasets import (
-    # Registry
+from schemas.datasets.registry import (
     EmbedderConfig,
     DatasetCreateRequest,
     DatasetMetadata,
     DatasetInfo,
     DatasetListResponse,
-    # Documents
+)
+from schemas.datasets.documents import (
     DocumentChunk,
     DocumentListResponse,
-    # Chunking
+)
+from schemas.datasets.chunking import (
     ChunkingMethodInfo,
     ChunkingMethodsResponse,
     RechunkRequest,
     RechunkResponse,
     DocumentSource,
     DocumentSourcesResponse,
-    # RAG Hub - Raw
+)
+from schemas.datasets.rag_hub import (
+    # Raw
     RawFileInfo,
     RawDatasetCreate,
     RawDatasetInfo,
     RawDatasetListResponse,
     SourceTypeEnum,
     FileTypeEnum,
-    # RAG Hub - Processing
+    # Processing
     CleaningConfig,
     LightweightMetadataConfig,
     LLMMetadataConfig,
@@ -78,17 +35,17 @@ from schemas.datasets import (
     PreprocessingConfig,
     ProcessingStatusResponse,
     ProcessingStatusEnum,
-    # RAG Hub - Processed
+    # Processed
     ProcessedDatasetCreate,
     ProcessedDatasetInfo,
     ProcessedDatasetListResponse,
-    # RAG Hub - HuggingFace
+    # HuggingFace
     HFDatasetConfig,
     HFImportAsRawRequest,
     HFDirectProcessRequest,
     HFColumnInfo,
     HFDatasetMetadata,
-    # RAG Hub - Metadata
+    # Metadata
     ExtractedMetadataInfo,
     BatchUploadFailedFile,
     BatchUploadResponse,
@@ -96,32 +53,7 @@ from schemas.datasets import (
 )
 
 __all__ = [
-    # Common
-    "Message",
-    "UploadResponse",
-    # Chat
-    "LegacyChatRequest",
-    "RAGChatRequest",
-    "RAGChatResponse",
-    "RAGStreamRequest",
-    "ChatResponseToken",
-    "HistoryMessage",
-    "ChatRequest",
-    "ChatStreamChunk",
-    # Health
-    "HealthStatusDetail",
-    "HealthResponse",
-    # Models
-    "ModelInfo",
-    "OllamaModelInfo",
-    "ModelValidationRequest",
-    "ModelMetadataResponse",
-    "ModelDownloadRequest",
-    "ModelLoadRequest",
-    # Automation
-    "AutomateRequest",
-    "AutomateResponse",
-    # Dataset Registry
+    # Registry
     "EmbedderConfig",
     "DatasetCreateRequest",
     "DatasetMetadata",

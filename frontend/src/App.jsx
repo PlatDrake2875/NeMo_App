@@ -407,7 +407,7 @@ function App() {
 							onViewChange={setRagHubView}
 						/>
 					) : (
-						<GuardrailsEditor onBack={handleBackToChat} isDarkMode={isDarkMode} />
+						<GuardrailsEditor onBack={handleBackToChat} />
 					)}
 				</div>
 

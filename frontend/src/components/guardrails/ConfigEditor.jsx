@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import Editor from "@monaco-editor/react";
 import { Skeleton } from "../ui/skeleton";
 import { cn } from "../../lib/utils";
+import { useTheme } from "../../hooks/useTheme";
 
 /**
  * ConfigEditor - Monaco editor wrapper for YAML and Colang files
@@ -14,8 +15,8 @@ export function ConfigEditor({
   readOnly = false,
   height = "100%",
   className,
-  isDarkMode,
 }) {
+  const { isDarkMode } = useTheme();
 
   const handleEditorChange = (newValue) => {
     if (onChange) {
@@ -102,5 +103,4 @@ ConfigEditor.propTypes = {
   readOnly: PropTypes.bool,
   height: PropTypes.string,
   className: PropTypes.string,
-  isDarkMode: PropTypes.bool,
 };

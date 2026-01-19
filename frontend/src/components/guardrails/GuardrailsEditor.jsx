@@ -36,7 +36,7 @@ import { GuardrailsTester } from "./GuardrailsTester";
 /**
  * GuardrailsEditor - Main editor for NeMo Guardrails configurations
  */
-export function GuardrailsEditor({ onBack, className, isDarkMode }) {
+export function GuardrailsEditor({ onBack, className }) {
   const {
     agents,
     selectedAgent,
@@ -238,7 +238,6 @@ export function GuardrailsEditor({ onBack, className, isDarkMode }) {
                     language="yaml"
                     readOnly={!selectedAgent?.is_custom}
                     height="100%"
-                    isDarkMode={isDarkMode}
                   />
                 </TabsContent>
                 <TabsContent value="colang" className="flex-1 p-4 mt-0">
@@ -248,7 +247,6 @@ export function GuardrailsEditor({ onBack, className, isDarkMode }) {
                     language="colang"
                     readOnly={!selectedAgent?.is_custom}
                     height="100%"
-                    isDarkMode={isDarkMode}
                   />
                 </TabsContent>
               </Tabs>
@@ -362,5 +360,4 @@ export function GuardrailsEditor({ onBack, className, isDarkMode }) {
 GuardrailsEditor.propTypes = {
   onBack: PropTypes.func.isRequired,
   className: PropTypes.string,
-  isDarkMode: PropTypes.bool,
 };

@@ -21,11 +21,13 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
+import { useTheme } from "../../../hooks/useTheme";
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-export function DocumentPreviewModal({ file, onClose, isDarkMode }) {
+export function DocumentPreviewModal({ file, onClose }) {
+  const { isDarkMode } = useTheme();
   const [content, setContent] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -271,7 +273,6 @@ DocumentPreviewModal.propTypes = {
     file_type: PropTypes.string.isRequired,
   }).isRequired,
   onClose: PropTypes.func.isRequired,
-  isDarkMode: PropTypes.bool,
 };
 
 export default DocumentPreviewModal;

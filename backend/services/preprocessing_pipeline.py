@@ -22,10 +22,12 @@ from database_models import (
     RawDataset,
     RawFile,
 )
-from schemas import CleaningConfig, LLMMetadataConfig, PreprocessingConfig
+from schemas import CleaningConfig, LightweightMetadataConfig, LLMMetadataConfig, PreprocessingConfig
 from services.chunking import ChunkingService
 from services.file_loader import FileLoaderService
+from services.lightweight_metadata_extractor import lightweight_metadata_extractor
 from services.llm_metadata_extractor import LLMMetadataExtractor
+from services.text_cleaners import clean_text
 from services.processed_dataset import processed_dataset_service
 from vectorstore_factory import VectorStoreFactory
 
@@ -221,7 +223,13 @@ class PreprocessingPipelineService:
         if config.cleaning.enabled:
             documents = self._clean_documents(documents, config.cleaning)
 
-        # Step 3: Extract LLM metadata (if enabled)
+        # Step 3: Extract lightweight metadata (if enabled)
+        if config.lightweight_metadata.enabled:
+            documents = self._extract_lightweight_metadata(
+                documents, config.lightweight_metadata
+            )
+
+        # Step 4: Extract LLM metadata (if enabled)
         if metadata_extractor and config.llm_metadata.enabled:
             documents = await self._extract_metadata(
                 db=db,
@@ -232,7 +240,7 @@ class PreprocessingPipelineService:
                 processed_dataset_id=processed_ds.id,
             )
 
-        # Step 4: Chunk documents
+        # Step 5: Chunk documents
         chunks = self._chunk_documents(documents, config.chunking)
         stats["chunks"] = len(chunks)
 
@@ -242,7 +250,7 @@ class PreprocessingPipelineService:
             chunk.metadata["original_filename"] = raw_file.filename
             chunk.metadata["processed_dataset_id"] = processed_ds.id
 
-        # Step 5: Index in vector store
+        # Step 6: Index in vector store
         if chunks:
             self._index_documents(chunks, vectorstore)
 
@@ -274,6 +282,19 @@ class PreprocessingPipelineService:
         for doc in documents:
             text = doc.page_content
 
+            # Apply new text cleaners first (they handle code block preservation)
+            text = clean_text(
+                text,
+                remove_html=config.remove_html_markup,
+                remove_urls_flag=config.remove_urls,
+                remove_citations_flag=config.remove_citations,
+                remove_emails_flag=config.remove_emails,
+                remove_phones_flag=config.remove_phone_numbers,
+                normalize_unicode_flag=config.normalize_unicode,
+                preserve_code=config.preserve_code_blocks,
+            )
+
+            # Apply original cleaning methods
             if config.normalize_whitespace:
                 # Normalize whitespace
                 text = re.sub(r"\s+", " ", text)
@@ -304,6 +325,39 @@ class PreprocessingPipelineService:
                 )
 
         return cleaned_docs
+
+    def _extract_lightweight_metadata(
+        self, documents: List[Document], config: LightweightMetadataConfig
+    ) -> List[Document]:
+        """
+        Extract lightweight metadata and enrich document metadata.
+
+        Uses fast, rule-based methods (no LLM required).
+        """
+        for doc in documents:
+            # Extract metadata from document content
+            metadata = lightweight_metadata_extractor.extract_all(
+                doc.page_content,
+                extract_rake_keywords=config.extract_rake_keywords,
+                extract_statistics=config.extract_statistics,
+                detect_language=config.detect_language,
+                extract_spacy_entities=config.extract_spacy_entities,
+            )
+
+            # Enrich document metadata
+            if metadata.get("keywords"):
+                doc.metadata["rake_keywords"] = metadata["keywords"]
+
+            if metadata.get("statistics"):
+                doc.metadata["statistics"] = metadata["statistics"]
+
+            if metadata.get("language"):
+                doc.metadata["language"] = metadata["language"]
+
+            if metadata.get("entities"):
+                doc.metadata["entities"] = metadata["entities"]
+
+        return documents
 
     def _apply_custom_pattern(self, text: str, pattern: str) -> str:
         """
@@ -398,9 +452,9 @@ class PreprocessingPipelineService:
 
         # Get vectorstore from factory
         return VectorStoreFactory.create_vectorstore(
+            backend=processed_ds.vector_backend,
             embedding_function=embeddings,
             collection_name=processed_ds.collection_name,
-            backend=processed_ds.vector_backend,
         )
 
 
