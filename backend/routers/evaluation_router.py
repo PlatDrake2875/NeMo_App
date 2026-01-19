@@ -595,3 +595,532 @@ async def generate_sample_pairs(request: GenerateSampleRequest):
     except Exception as e:
         logger.error(f"Error generating sample pairs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Sample generation failed: {str(e)}")
+
+
+# --- New Batch, Dry-Run, and Import Endpoints ---
+
+@router.post("/batch")
+async def run_batch_evaluation(configs: list[dict], dataset_id: Optional[str] = None):
+    """
+    Run batch evaluations with multiple configurations.
+
+    Useful for comparing different embedder/reranker combinations.
+    """
+    from services.eval_runner import BatchEvalRunner, EvalConfig
+
+    try:
+        eval_configs = [EvalConfig.from_dict(c) for c in configs]
+
+        batch_runner = BatchEvalRunner()
+        results = await batch_runner.run_batch(eval_configs, dataset_id, parallel=True)
+
+        return {
+            "batch_id": str(uuid.uuid4())[:8],
+            "run_ids": [r.run_id for r in results],
+            "config_hashes": [r.config.config_hash() for r in results],
+        }
+    except Exception as e:
+        logger.error(f"Batch evaluation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Batch evaluation failed: {str(e)}")
+
+
+@router.post("/dry-run")
+async def dry_run_evaluation(
+    collection_name: str,
+    eval_dataset_id: Optional[str] = None,
+    embedder: str = "sentence-transformers/all-MiniLM-L6-v2",
+    use_colbert: bool = False,
+    top_k: int = 5,
+    temperature: float = 0.1,
+    use_rag: bool = True,
+):
+    """
+    Validate evaluation configuration without running inference.
+
+    Returns:
+    - config_hash: Unique hash for this configuration
+    - would_create_new_run: Whether this config has been run before
+    - validation_errors: Any configuration issues
+    """
+    from services.eval_runner import EvalConfig, EvalRunner
+
+    config = EvalConfig(
+        embedder_model=embedder,
+        reranker_strategy="colbert" if use_colbert else "none",
+        top_k=top_k,
+        temperature=temperature,
+        dataset_id=eval_dataset_id,
+        collection_name=collection_name,
+        use_rag=use_rag,
+    )
+
+    runner = EvalRunner()
+    result = runner.dry_run(config, eval_dataset_id)
+
+    return {
+        "config_hash": result["config_hash"],
+        "would_create_new_run": "existing_run_id" not in result,
+        "existing_run_id": result.get("existing_run_id"),
+        "valid": result["valid"],
+        "errors": result["errors"],
+        "warnings": result["warnings"],
+        "dataset_name": result.get("dataset_name"),
+        "pair_count": result.get("pair_count"),
+    }
+
+
+@router.get("/metrics")
+async def list_available_metrics():
+    """
+    List all available evaluation metrics.
+
+    Returns metadata about each metric including:
+    - name: Metric identifier
+    - description: What the metric measures
+    - requires_context: Whether it needs retrieved chunks
+    - requires_reference: Whether it needs ground truth
+    """
+    from services.metrics.registry import get_all_metric_info
+
+    return get_all_metric_info()
+
+
+@router.post("/runs/{run_id}/rescore")
+async def rescore_evaluation_run(run_id: str, metrics: Optional[list[str]] = None):
+    """
+    Re-score an evaluation run with new or different metrics.
+
+    Useful when new metrics are added or you want to recompute
+    specific metrics without re-running inference.
+    """
+    from services.eval_scorer import EvalScorer
+
+    try:
+        scorer = EvalScorer()
+        scored_result = await scorer.rescore_run(run_id, metrics)
+        scorer.save_scored_run(scored_result)
+
+        return {
+            "run_id": scored_result.run_id,
+            "metrics": scored_result.metrics.to_dict(),
+            "scored_at": scored_result.scored_at,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Re-scoring failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Re-scoring failed: {str(e)}")
+
+
+@router.get("/datasets/import/formats")
+async def list_import_formats():
+    """List available dataset import formats."""
+    from services.dataset_importers import list_importers
+
+    return list_importers()
+
+
+@router.post("/datasets/import")
+async def import_dataset(
+    format: str,
+    name: str,
+    file: bytes,
+    max_pairs: Optional[int] = None,
+):
+    """
+    Import an evaluation dataset from a standard format.
+
+    Supported formats:
+    - squad: Stanford Question Answering Dataset
+    - natural_questions: Google Natural Questions
+    - msmarco: Microsoft MARCO
+
+    The file should be uploaded as raw bytes.
+    """
+    from services.dataset_importers import get_importer
+    from services.dataset_validator import validate_qa_pairs
+    from io import BytesIO
+
+    try:
+        importer = get_importer(format)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        result = importer.import_from_stream(BytesIO(file), max_pairs)
+
+        if not result.success or not result.pairs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Import failed: {result.errors[0] if result.errors else 'No pairs found'}",
+            )
+
+        # Validate imported pairs
+        validation = validate_qa_pairs([p.to_dict() for p in result.pairs])
+
+        if not validation.valid:
+            logger.warning(f"Validation issues: {validation.errors}")
+
+        # Convert to standard format and save
+        dataset_id = str(uuid.uuid4())[:8]
+        created_at = datetime.now().isoformat()
+
+        pairs = [
+            {
+                "query": p.question,
+                "ground_truth": p.expected_answer,
+                "alternative_answers": p.alternative_answers,
+                "answer_type": p.answer_type,
+                "difficulty": p.difficulty,
+                "is_answerable": p.is_answerable,
+                "metadata": p.metadata,
+            }
+            for p in result.pairs
+        ]
+
+        data = {
+            "id": dataset_id,
+            "name": name,
+            "pairs": pairs,
+            "created_at": created_at,
+            "source_format": result.source_format,
+            "import_stats": {
+                "total_processed": result.total_processed,
+                "skipped": result.skipped,
+                "imported": len(result.pairs),
+            },
+        }
+
+        _save_dataset(dataset_id, data)
+
+        return {
+            "id": dataset_id,
+            "name": name,
+            "pair_count": len(result.pairs),
+            "source_format": result.source_format,
+            "created_at": created_at,
+            "validation": validation.to_dict(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Dataset import failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@router.post("/datasets/{dataset_id}/validate")
+async def validate_dataset(dataset_id: str):
+    """
+    Validate an evaluation dataset.
+
+    Checks for:
+    - Empty questions/answers
+    - Duplicate questions
+    - Format consistency
+    """
+    from services.dataset_validator import validate_qa_pairs
+
+    try:
+        dataset = _load_dataset(dataset_id)
+        pairs = dataset.get("pairs", [])
+
+        result = validate_qa_pairs(pairs)
+
+        return result.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Validation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+
+
+@router.post("/runs/compare")
+async def compare_evaluation_runs(
+    run_id_a: str,
+    run_id_b: str,
+    metrics: Optional[list[str]] = None,
+    alpha: float = 0.05,
+):
+    """
+    Statistically compare two evaluation runs.
+
+    Computes:
+    - Paired t-test / Wilcoxon signed-rank test
+    - Cohen's d effect size
+    - Significance determination with multiple testing correction
+
+    Args:
+        run_id_a: First run ID
+        run_id_b: Second run ID
+        metrics: Metrics to compare (default: all available)
+        alpha: Significance level (default: 0.05)
+
+    Returns:
+        Statistical comparison results with p-values and effect sizes
+    """
+    from services.statistics import (
+        compare_runs,
+        bootstrap_ci,
+        benjamini_hochberg_correction,
+        summarize_comparison,
+    )
+
+    # Load both runs
+    path_a = EVAL_RUNS_DIR / f"{run_id_a}.json"
+    path_b = EVAL_RUNS_DIR / f"{run_id_b}.json"
+
+    if not path_a.exists():
+        raise HTTPException(status_code=404, detail=f"Run {run_id_a} not found")
+    if not path_b.exists():
+        raise HTTPException(status_code=404, detail=f"Run {run_id_b} not found")
+
+    with open(path_a) as f:
+        data_a = json.load(f)
+    with open(path_b) as f:
+        data_b = json.load(f)
+
+    results_a = data_a.get("results", [])
+    results_b = data_b.get("results", [])
+
+    if len(results_a) != len(results_b):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Runs have different number of results ({len(results_a)} vs {len(results_b)}). "
+                   "Cannot perform paired comparison."
+        )
+
+    # Default metrics to compare
+    if metrics is None:
+        metrics = ["answer_correctness", "faithfulness", "context_precision", "relevancy"]
+
+    # Extract scores for each metric
+    comparisons = []
+    for metric_name in metrics:
+        scores_a = []
+        scores_b = []
+
+        for r_a, r_b in zip(results_a, results_b):
+            # Get scores from the results
+            score_a = r_a.get("scores", {}).get(metric_name, 0.0) if r_a.get("scores") else 0.0
+            score_b = r_b.get("scores", {}).get(metric_name, 0.0) if r_b.get("scores") else 0.0
+            scores_a.append(score_a)
+            scores_b.append(score_b)
+
+        if scores_a and scores_b:
+            comparison = compare_runs(scores_a, scores_b, metric_name, alpha=alpha)
+            comparisons.append(comparison)
+
+    # Apply multiple testing correction
+    if comparisons:
+        p_values = [c.p_value for c in comparisons if c.p_value is not None]
+        if p_values:
+            significant, adjusted_p = benjamini_hochberg_correction(p_values, alpha)
+            # Update significance based on correction
+            for i, comp in enumerate(comparisons):
+                if i < len(significant):
+                    comp.is_significant = significant[i]
+
+    # Generate summary
+    summary = summarize_comparison(comparisons, alpha)
+
+    return {
+        "run_id_a": run_id_a,
+        "run_id_b": run_id_b,
+        "comparisons": [c.to_dict() for c in comparisons],
+        "alpha": alpha,
+        "summary": summary,
+        "n_samples": len(results_a),
+    }
+
+
+# --- Dataset Contamination & Split Endpoints ---
+
+
+@router.post("/datasets/{dataset_id}/check-contamination")
+async def check_dataset_contamination(
+    dataset_id: str,
+    training_dataset_id: Optional[str] = None,
+    check_ngram: bool = True,
+    check_semantic: bool = False,
+):
+    """
+    Check for contamination between evaluation dataset and training data.
+
+    Args:
+        dataset_id: Evaluation dataset to check
+        training_dataset_id: Training dataset to check against (optional)
+        check_ngram: Enable n-gram overlap detection
+        check_semantic: Enable semantic similarity detection (slower)
+
+    Returns:
+        Contamination detection results
+    """
+    from services.contamination_checker import ContaminationChecker
+
+    try:
+        dataset = _load_dataset(dataset_id)
+        pairs = dataset.get("pairs", [])
+
+        checker = ContaminationChecker()
+
+        if training_dataset_id:
+            # Check against another dataset
+            training_dataset = _load_dataset(training_dataset_id)
+            training_pairs = training_dataset.get("pairs", [])
+            # Extract text content from training pairs
+            training_corpus = []
+            for p in training_pairs:
+                q = p.get("question", p.get("query", ""))
+                a = p.get("expected_answer", p.get("ground_truth", ""))
+                training_corpus.extend([q, a])
+
+            result = checker.check_contamination(
+                pairs,
+                training_corpus,
+                check_exact=True,
+                check_ngram=check_ngram,
+                check_semantic=check_semantic,
+            )
+        else:
+            # Check for internal duplicates only
+            result = checker.check_internal_contamination(pairs)
+
+        return result.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Contamination check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Contamination check failed: {str(e)}")
+
+
+@router.post("/datasets/{dataset_id}/split")
+async def split_dataset(
+    dataset_id: str,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+    seed: int = 42,
+    method: str = "hash",
+):
+    """
+    Split a dataset into train/val/test splits.
+
+    Args:
+        dataset_id: Dataset to split
+        train_ratio: Proportion for training (default 0.7)
+        val_ratio: Proportion for validation (default 0.15)
+        test_ratio: Proportion for testing (default 0.15)
+        seed: Random seed for reproducibility
+        method: "hash" (deterministic) or "random"
+
+    Returns:
+        Split information and updated dataset
+    """
+    from services.dataset_splitter import DatasetSplitter
+
+    try:
+        dataset = _load_dataset(dataset_id)
+        pairs = dataset.get("pairs", [])
+
+        splitter = DatasetSplitter()
+
+        if method == "hash":
+            result = splitter.split_by_hash(pairs, train_ratio, val_ratio, test_ratio, seed)
+        else:
+            result = splitter.split_by_ratio(pairs, train_ratio, val_ratio, test_ratio, seed)
+
+        # Add split labels to pairs and update dataset
+        labeled_pairs = splitter.assign_split_labels(
+            pairs, train_ratio, val_ratio, test_ratio, seed, method
+        )
+
+        # Update dataset with labeled pairs
+        dataset["pairs"] = labeled_pairs
+        dataset["split_info"] = {
+            "method": method,
+            "seed": seed,
+            "train_ratio": train_ratio,
+            "val_ratio": val_ratio,
+            "test_ratio": test_ratio,
+            "train_count": result.train.pair_count,
+            "val_count": result.val.pair_count,
+            "test_count": result.test.pair_count,
+        }
+
+        _save_dataset(dataset_id, dataset)
+
+        return {
+            "dataset_id": dataset_id,
+            "splits": result.to_dict(),
+            "message": f"Split {len(pairs)} pairs into train/val/test",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Dataset split failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Split failed: {str(e)}")
+
+
+@router.post("/datasets/{dataset_id}/deduplicate")
+async def deduplicate_dataset(
+    dataset_id: str,
+    method: str = "exact",
+    similarity_threshold: float = 0.85,
+):
+    """
+    Remove duplicate pairs from a dataset.
+
+    Args:
+        dataset_id: Dataset to deduplicate
+        method: "exact" (hash-based) or "semantic" (embedding-based)
+        similarity_threshold: For semantic method, similarity threshold
+
+    Returns:
+        Deduplication results and updated dataset
+    """
+    from services.dataset_validator import deduplicate_pairs, add_content_hashes
+
+    try:
+        dataset = _load_dataset(dataset_id)
+        pairs = dataset.get("pairs", [])
+
+        original_count = len(pairs)
+        deduplicated, removed = deduplicate_pairs(pairs, method, similarity_threshold)
+
+        # Add content hashes to deduplicated pairs
+        deduplicated = add_content_hashes(deduplicated)
+
+        # Update dataset
+        dataset["pairs"] = deduplicated
+        dataset["deduplication_info"] = {
+            "method": method,
+            "original_count": original_count,
+            "deduplicated_count": len(deduplicated),
+            "removed_count": len(removed),
+        }
+
+        _save_dataset(dataset_id, dataset)
+
+        return {
+            "dataset_id": dataset_id,
+            "original_count": original_count,
+            "deduplicated_count": len(deduplicated),
+            "removed_count": len(removed),
+            "removed_pairs": [
+                {
+                    "question": p.get("question", p.get("query", ""))[:100],
+                    "duplicate_of": p.get("_duplicate_of"),
+                }
+                for p in removed[:20]  # Limit output
+            ],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Deduplication failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Deduplication failed: {str(e)}")

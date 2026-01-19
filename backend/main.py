@@ -23,6 +23,7 @@ from routers import (
     model_router,
     processed_dataset_router,
     raw_dataset_router,
+    template_router,
     upload_router,
 )
 
@@ -86,6 +87,7 @@ app.include_router(raw_dataset_router.router, prefix="/api", tags=["Raw Dataset 
 app.include_router(processed_dataset_router.router, prefix="/api", tags=["Processed Dataset Endpoints"])
 app.include_router(huggingface_router.router, prefix="/api", tags=["HuggingFace Endpoints"])
 app.include_router(evaluation_router.router, tags=["Evaluation Endpoints"])
+app.include_router(template_router.router, tags=["Template Endpoints"])
 
 
 # --- Main Method for Application Testing ---

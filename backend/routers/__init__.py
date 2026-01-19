@@ -15,6 +15,7 @@ from . import huggingface_router
 from . import model_router
 from . import processed_dataset_router
 from . import raw_dataset_router
+from . import template_router
 from . import upload_router
 
 __all__ = [
@@ -31,5 +32,6 @@ __all__ = [
     "model_router",
     "processed_dataset_router",
     "raw_dataset_router",
+    "template_router",
     "upload_router",
 ]

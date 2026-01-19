@@ -3,7 +3,7 @@
 # NeMo App - Graceful Shutdown Script
 # This script stops all running services cleanly
 
-set -e  # Exit on error
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.yml"
-COMPOSE_PROFILE="fullstack"
+PROFILE_FLAGS=(--profile fullstack --profile gpu --profile cpu)
 
 # Helper functions
 print_header() {
@@ -51,16 +51,16 @@ stop_services() {
     local all_profiles="fullstack,gpu,cpu"
 
     # Check if any services are running
-    if docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu ps -q 2>/dev/null | grep -q .; then
+    if docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" ps -q 2>/dev/null | grep -q .; then
         print_info "Stopping services gracefully..."
 
         # Stop services (gives containers time to shut down)
-        docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu stop
+        docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" stop
         print_success "Services stopped"
 
         # Remove containers
         print_info "Removing containers..."
-        docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu down
+        docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" down
         print_success "Containers removed"
     else
         print_warning "No running services found"
@@ -89,13 +89,13 @@ show_cleanup_options() {
         2)
             print_warning "Removing data volumes..."
             cd "$PROJECT_ROOT"
-            docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu down -v
+            docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" down -v
             print_success "Data volumes removed (PostgreSQL, vLLM cache, Qdrant)"
             ;;
         3)
             print_warning "Removing volumes and images..."
             cd "$PROJECT_ROOT"
-            docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu down -v --rmi local
+            docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" down -v --rmi local
             print_success "Volumes and images removed"
             ;;
         *)
@@ -111,9 +111,9 @@ show_status() {
     cd "$PROJECT_ROOT"
 
     # Check if any containers are still running
-    if docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu ps -q 2>/dev/null | grep -q .; then
+    if docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" ps -q 2>/dev/null | grep -q .; then
         print_warning "Some containers are still running:"
-        docker compose -f "$COMPOSE_FILE" --profile fullstack --profile gpu --profile cpu ps
+        docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" ps
     else
         print_success "All NeMo App services have been stopped"
     fi
@@ -131,8 +131,13 @@ show_status() {
 }
 
 docker_cleanup() {
-    docker compose --profile fullstack --profile gpu --profile cpu down
-    docker network prune -f
+    cd "$PROJECT_ROOT"
+    docker compose -f "$COMPOSE_FILE" "${PROFILE_FLAGS[@]}" down
+
+    # Only remove THIS project's networks (not all networks!)
+    local project_name
+    project_name=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    docker network ls --filter "name=${project_name}" -q 2>/dev/null | xargs -r docker network rm 2>/dev/null || true
 }
 
 
@@ -143,8 +148,7 @@ main() {
     stop_services
     show_cleanup_options
     show_status
-    docker_cleanup
-    
+
     print_success "Shutdown complete!"
 }
 

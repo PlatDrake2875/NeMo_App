@@ -4,7 +4,7 @@
 # Usage: ./deploy/start.sh --gpu    (for GPU mode)
 #        ./deploy/start.sh --cpu    (for CPU mode)
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -17,6 +17,31 @@ NC='\033[0m' # No Color
 REQUIRED_PORTS=(5173 8000 8002 5432)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.yml"
+LOCKFILE="${PROJECT_ROOT}/.deploy.lock"
+
+# Lockfile mechanism to prevent concurrent deployments
+acquire_lock() {
+    if [ -f "$LOCKFILE" ]; then
+        local pid
+        pid=$(cat "$LOCKFILE" 2>/dev/null) || true
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            print_error "Another deployment is already running (PID: $pid)"
+            exit 1
+        fi
+        rm -f "$LOCKFILE"
+    fi
+    echo $$ > "$LOCKFILE"
+}
+
+# Cleanup trap for failure handling
+cleanup_on_failure() {
+    local exit_code=$?
+    [ -f "$LOCKFILE" ] && rm -f "$LOCKFILE"
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${RED}Startup failed (exit code: $exit_code)${NC}"
+    fi
+}
+trap cleanup_on_failure EXIT
 
 # Helper functions
 print_header() {
@@ -63,16 +88,16 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Check if a port is in use
+# Check if a port is in use (ss primary, lsof fallback)
 port_in_use() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1 ; then
-        return 0
-    elif netstat -tuln 2>/dev/null | grep -q ":$port "; then
-        return 0
-    else
-        return 1
+    if command_exists ss; then
+        ss -tuln 2>/dev/null | grep -q ":${port} " && return 0
     fi
+    if command_exists lsof; then
+        lsof -Pi ":${port}" -sTCP:LISTEN -t >/dev/null 2>&1 && return 0
+    fi
+    return 1
 }
 
 # Get process using a port
@@ -136,8 +161,14 @@ check_containers_health() {
     cd "$PROJECT_ROOT"
 
     # Get the actual project name from docker compose
-    local project_name=$(docker compose -f "$COMPOSE_FILE" config --format json 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
-
+    local project_name=""
+    if command_exists jq; then
+        project_name=$(docker compose -f "$COMPOSE_FILE" config --format json 2>/dev/null | jq -r '.name // empty') || true
+    fi
+    if [ -z "$project_name" ]; then
+        # YAML fallback when jq is not available
+        project_name=$(docker compose -f "$COMPOSE_FILE" config 2>/dev/null | grep -E '^name:' | awk '{print $2}') || true
+    fi
     if [ -z "$project_name" ]; then
         # Fallback to directory-based naming
         project_name=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
@@ -285,8 +316,8 @@ start_services() {
     if [ "$rebuild" = "full" ]; then
         print_header "Building and Starting All Services"
 
-        print_info "Building Docker images in parallel..."
-        docker compose -f "$COMPOSE_FILE" build --parallel
+        print_info "Building Docker images..."
+        docker compose -f "$COMPOSE_FILE" build
         print_success "Images built successfully"
         echo ""
 
@@ -299,7 +330,7 @@ start_services() {
         print_header "Restarting Unhealthy Services"
 
         print_info "Rebuilding unhealthy services..."
-        docker compose -f "$COMPOSE_FILE" build --parallel
+        docker compose -f "$COMPOSE_FILE" build
         print_success "Images built"
         echo ""
 
@@ -414,6 +445,9 @@ show_status() {
 # Main execution
 main() {
     print_header "NeMo App - Smart Startup with Hot Reload"
+
+    # Acquire lock to prevent concurrent deployments
+    acquire_lock
 
     # Parse arguments
     if [ $# -eq 0 ]; then

@@ -29,6 +29,7 @@ import {
   Sparkles,
   FlaskConical,
   Download,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -40,6 +41,7 @@ const ragHubNavItems = [
   { id: "processed", label: "Processed Datasets", icon: Database },
   { id: "generate-qa", label: "Generate Q&A", icon: Sparkles },
   { id: "evaluation", label: "Evaluation", icon: FlaskConical },
+  { id: "annotation", label: "Annotation", icon: ClipboardCheck },
   { id: "huggingface", label: "HuggingFace Import", icon: Download },
 ];
 

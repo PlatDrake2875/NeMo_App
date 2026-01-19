@@ -276,33 +276,22 @@ class PreprocessingPipelineService:
     def _clean_documents(
         self, documents: List[Document], config: CleaningConfig
     ) -> List[Document]:
-        """Apply cleaning transformations to documents."""
+        """Apply cleaning transformations to documents.
+
+        Operation order is critical:
+        1. Structure-based cleaning FIRST (needs newlines intact)
+        2. Content cleaning (code blocks preserved)
+        3. Whitespace normalization LAST
+        4. Custom patterns
+        """
         cleaned_docs = []
 
         for doc in documents:
             text = doc.page_content
 
-            # Apply new text cleaners first (they handle code block preservation)
-            text = clean_text(
-                text,
-                remove_html=config.remove_html_markup,
-                remove_urls_flag=config.remove_urls,
-                remove_citations_flag=config.remove_citations,
-                remove_emails_flag=config.remove_emails,
-                remove_phones_flag=config.remove_phone_numbers,
-                normalize_unicode_flag=config.normalize_unicode,
-                preserve_code=config.preserve_code_blocks,
-            )
-
-            # Apply original cleaning methods
-            if config.normalize_whitespace:
-                # Normalize whitespace
-                text = re.sub(r"\s+", " ", text)
-                text = re.sub(r"\n\s*\n", "\n\n", text)
-                text = text.strip()
-
+            # 1. Structure-based cleaning FIRST (requires newlines to be intact)
             if config.remove_page_numbers:
-                # Remove common page number patterns
+                # Remove common page number patterns (standalone numbers on lines)
                 text = re.sub(r"\n\s*\d+\s*\n", "\n", text)
                 text = re.sub(r"^\s*\d+\s*$", "", text, flags=re.MULTILINE)
 
@@ -315,7 +304,24 @@ class PreprocessingPipelineService:
                 ]
                 text = "\n".join(filtered_lines)
 
-            # Apply custom patterns with timeout protection (ReDoS prevention)
+            # 2. Content cleaning (handles code block preservation)
+            text = clean_text(
+                text,
+                remove_html=config.remove_html_markup,
+                remove_urls_flag=config.remove_urls,
+                remove_citations_flag=config.remove_citations,
+                remove_emails_flag=config.remove_emails,
+                remove_phones_flag=config.remove_phone_numbers,
+                normalize_unicode_flag=config.normalize_unicode,
+                preserve_code=config.preserve_code_blocks,
+            )
+
+            # 3. Whitespace normalization LAST (destroys newline structure)
+            if config.normalize_whitespace:
+                text = re.sub(r"\s+", " ", text)
+                text = text.strip()
+
+            # 4. Apply custom patterns with timeout protection (ReDoS prevention)
             for pattern in config.custom_patterns:
                 text = self._apply_custom_pattern(text, pattern)
 

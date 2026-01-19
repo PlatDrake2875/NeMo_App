@@ -45,6 +45,18 @@ from schemas.models import (
 # Automation schemas
 from schemas.automation import AutomateRequest, AutomateResponse
 
+# Experiment Template schemas
+from schemas.experiment_template import (
+    MetricsConfig,
+    ExperimentTemplate,
+    TemplateMetadata,
+    TemplateListResponse,
+    SaveTemplateRequest,
+    SaveTemplateResponse,
+    ImportTemplateRequest,
+    ExportTemplateResponse,
+)
+
 # Dataset schemas
 from schemas.datasets import (
     # Registry
@@ -121,6 +133,15 @@ __all__ = [
     # Automation
     "AutomateRequest",
     "AutomateResponse",
+    # Experiment Templates
+    "MetricsConfig",
+    "ExperimentTemplate",
+    "TemplateMetadata",
+    "TemplateListResponse",
+    "SaveTemplateRequest",
+    "SaveTemplateResponse",
+    "ImportTemplateRequest",
+    "ExportTemplateResponse",
     # Dataset Registry
     "EmbedderConfig",
     "DatasetCreateRequest",

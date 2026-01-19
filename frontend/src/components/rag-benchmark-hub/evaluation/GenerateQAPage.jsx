@@ -25,6 +25,7 @@ import {
   Database,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
+import ImportWizard from "../datasets/ImportWizard";
 
 export function GenerateQAPage() {
   // Available collections for Q&A generation
@@ -377,6 +378,9 @@ export function GenerateQAPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Import External Dataset */}
+        <ImportWizard onImportComplete={fetchEvalDatasets} />
       </div>
     </div>
   );

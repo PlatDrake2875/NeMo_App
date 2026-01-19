@@ -1,6 +1,17 @@
 """
 RAGAS-style Evaluation Metrics for RAG Pipeline.
 
+DEPRECATED: This module is deprecated. Use `services.metrics` instead.
+
+This module is kept for backward compatibility. All functionality
+delegates to the new plugin-based metrics in `services.metrics`.
+
+New code should use:
+    from services.metrics import get_metric, compute_metric
+
+    metric = get_metric("answer_correctness")
+    result = await metric.compute(...)
+
 Implements proper evaluation metrics based on the RAGAS methodology:
 - Answer Correctness: F1 factual similarity + semantic similarity
 - Faithfulness: LLM-based claim verification against context
@@ -10,6 +21,7 @@ Implements proper evaluation metrics based on the RAGAS methodology:
 
 import asyncio
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -19,6 +31,14 @@ from sentence_transformers import SentenceTransformer
 from services.openrouter_client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning on module import
+warnings.warn(
+    "The 'evaluation_metrics' module is deprecated. "
+    "Use 'services.metrics' instead for the plugin-based metrics architecture.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 # --- LLM Prompts ---
@@ -73,6 +93,27 @@ Example: {{"relevant": true, "reason": "Contains definition of the key concept"}
 
 Judge relevance:"""
 
+GROUND_TRUTH_RELEVANCE_PROMPT = """You are an expert at judging whether text chunks support answering questions correctly.
+
+Given a question, a reference answer (ground truth), and a text chunk, determine if the chunk contains information that supports or leads to the ground truth answer.
+
+A chunk is relevant if it contains information that would help derive or verify the ground truth answer.
+
+Question: {question}
+
+Ground Truth Answer: {ground_truth}
+
+Chunk:
+{chunk}
+
+Return a JSON object with:
+- "relevant": true/false - whether the chunk supports the ground truth answer
+- "reason": brief explanation of why it does or doesn't support the answer
+
+Example: {{"relevant": true, "reason": "Contains the specific fact mentioned in the ground truth"}}
+
+Judge relevance to ground truth:"""
+
 
 # --- Data Classes ---
 
@@ -117,6 +158,19 @@ class RAGEvaluationMetrics:
     """
     RAGAS-style evaluation metrics for RAG pipelines.
 
+    DEPRECATED: This class is deprecated. Use the plugin-based metrics instead:
+
+        from services.metrics import get_metric, compute_metric
+
+        # Get a specific metric
+        metric = get_metric("answer_correctness")
+        result = await metric.compute(question, answer, reference, chunks)
+
+        # Or use the convenience function
+        result = await compute_metric("faithfulness", ...)
+
+    This class is kept for backward compatibility and will be removed in a future version.
+
     Uses a combination of LLM-based evaluation and embedding similarity
     to provide accurate, meaningful metrics.
     """
@@ -135,6 +189,12 @@ class RAGEvaluationMetrics:
             embedder_model: Sentence transformer model for embeddings
             llm_model: Model to use for LLM-based evaluation
         """
+        warnings.warn(
+            "RAGEvaluationMetrics is deprecated. "
+            "Use 'services.metrics' module instead (get_metric, compute_metric).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.llm = llm_client or OpenRouterClient()
         self.llm_model = llm_model
         self._embedder = None
@@ -196,11 +256,12 @@ class RAGEvaluationMetrics:
             # Compare claims using semantic similarity
             tp, fp, fn = await self._compare_claims(predicted_claims, ground_truth_claims)
 
-            # F1 score formula
-            if tp == 0:
+            # Standard F1 score formula: 2*TP / (2*TP + FP + FN)
+            denominator = 2 * tp + fp + fn
+            if denominator == 0:
                 factual_score = 0.0
             else:
-                factual_score = tp / (tp + 0.5 * (fp + fn))
+                factual_score = (2 * tp) / denominator
 
         # Calculate semantic similarity
         semantic_score = self._cosine_similarity(predicted, ground_truth)
@@ -296,14 +357,15 @@ class RAGEvaluationMetrics:
         Calculate context precision - are retrieved chunks relevant and well-ranked?
 
         Based on RAGAS Context Precision metric:
-        - Judges relevance of each chunk to the query
+        - Judges relevance of each chunk to the query (and ground truth if available)
         - Calculates mean precision@k, weighted by position
         - Earlier irrelevant chunks hurt the score more
 
         Args:
             query: The original question
             chunks: List of retrieved chunks in order
-            ground_truth: Optional ground truth answer for reference
+            ground_truth: Optional ground truth answer. If provided, checks if chunks
+                         support the ground truth answer (more accurate evaluation).
 
         Returns:
             ContextPrecisionResult with score and chunk relevances
@@ -312,8 +374,9 @@ class RAGEvaluationMetrics:
             return ContextPrecisionResult(score=0.0, chunk_relevances=[])
 
         # Judge relevance of each chunk
+        # Use ground truth if available for more accurate evaluation
         relevances = await asyncio.gather(
-            *[self._judge_chunk_relevance(query, chunk) for chunk in chunks]
+            *[self._judge_chunk_relevance(query, chunk, ground_truth) for chunk in chunks]
         )
 
         # Calculate mean precision@k
@@ -440,13 +503,35 @@ class RAGEvaluationMetrics:
 
         return tp, fp, fn
 
-    async def _judge_chunk_relevance(self, query: str, chunk: str) -> bool:
-        """Judge if a chunk is relevant to answering the query using LLM."""
+    async def _judge_chunk_relevance(
+        self, query: str, chunk: str, ground_truth: Optional[str] = None
+    ) -> bool:
+        """
+        Judge if a chunk is relevant using LLM.
+
+        Args:
+            query: The question being asked
+            chunk: The text chunk to evaluate
+            ground_truth: Optional ground truth answer. If provided, checks if chunk
+                         supports the ground truth answer (more accurate).
+
+        Returns:
+            True if the chunk is relevant, False otherwise
+        """
         try:
-            prompt = RELEVANCE_JUDGMENT_PROMPT.format(
-                question=query,
-                chunk=chunk[:2000],  # Truncate long chunks
-            )
+            if ground_truth:
+                # Use ground truth-aware prompt for more accurate evaluation
+                prompt = GROUND_TRUTH_RELEVANCE_PROMPT.format(
+                    question=query,
+                    ground_truth=ground_truth[:1000],
+                    chunk=chunk[:2000],
+                )
+            else:
+                # Fall back to query-only relevance
+                prompt = RELEVANCE_JUDGMENT_PROMPT.format(
+                    question=query,
+                    chunk=chunk[:2000],
+                )
 
             result = await self.llm.generate_json(
                 prompt=prompt,
@@ -459,7 +544,9 @@ class RAGEvaluationMetrics:
         except Exception as e:
             logger.warning(f"Failed to judge chunk relevance: {e}")
             # Fallback: use embedding similarity
-            similarity = self._cosine_similarity(query, chunk)
+            # Use ground truth for fallback if available
+            reference_text = ground_truth if ground_truth else query
+            similarity = self._cosine_similarity(reference_text, chunk)
             return similarity > 0.3
 
     def _cosine_similarity(self, text1: str, text2: str) -> float:

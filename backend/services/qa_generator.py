@@ -91,6 +91,7 @@ class QAGeneratorService:
         self,
         processed_dataset_id: int,
         max_chunks: Optional[int] = None,
+        seed: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve chunks from a processed dataset's vector store.
@@ -98,6 +99,7 @@ class QAGeneratorService:
         Args:
             processed_dataset_id: ID of the processed dataset
             max_chunks: Maximum number of chunks to retrieve
+            seed: Random seed for deterministic ordering. If None, uses random order.
 
         Returns:
             List of chunk dicts with content and metadata
@@ -122,16 +124,24 @@ class QAGeneratorService:
             dataset_name = row[1]
 
             # Query chunks from langchain_pg_embedding table
+            # Use deterministic ordering if seed is provided
             limit_clause = f"LIMIT {max_chunks}" if max_chunks else ""
+            if seed is not None:
+                # Deterministic ordering using hash of uuid combined with seed
+                # This ensures same seed always produces same ordering
+                order_clause = f"ORDER BY md5(uuid::text || '{seed}'::text)"
+            else:
+                order_clause = "ORDER BY RANDOM()"
+
             chunks_result = session.execute(
                 text(f"""
-                    SELECT document, cmetadata
+                    SELECT document, cmetadata, uuid
                     FROM langchain_pg_embedding
                     WHERE collection_id = (
                         SELECT uuid FROM langchain_pg_collection
                         WHERE name = :collection_name
                     )
-                    ORDER BY RANDOM()
+                    {order_clause}
                     {limit_clause}
                 """),
                 {"collection_name": collection_name}
@@ -141,6 +151,7 @@ class QAGeneratorService:
             for chunk_row in chunks_result:
                 content = chunk_row[0]
                 metadata = chunk_row[1] if chunk_row[1] else {}
+                chunk_uuid = str(chunk_row[2]) if len(chunk_row) > 2 else None
 
                 # Extract source info from metadata
                 source_info = metadata.get("source", "Unknown source")
@@ -152,6 +163,7 @@ class QAGeneratorService:
                     "metadata": metadata,
                     "source_info": source_info,
                     "dataset_name": dataset_name,
+                    "chunk_id": chunk_uuid,
                 })
 
             return chunks
@@ -220,6 +232,7 @@ class QAGeneratorService:
         pairs_per_chunk: int = 2,
         max_chunks: Optional[int] = 50,
         batch_size: int = 5,
+        seed: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Generate Q&A pairs from a processed dataset's chunks.
@@ -230,19 +243,22 @@ class QAGeneratorService:
             pairs_per_chunk: Number of Q&A pairs per chunk
             max_chunks: Maximum chunks to process (None for all)
             batch_size: Number of chunks to process concurrently
+            seed: Random seed for deterministic chunk selection
 
         Returns:
             Dict with dataset info and generated pairs
         """
         logger.info(
             f"Starting Q&A generation for dataset {processed_dataset_id}, "
-            f"name='{name}', pairs_per_chunk={pairs_per_chunk}, max_chunks={max_chunks}"
+            f"name='{name}', pairs_per_chunk={pairs_per_chunk}, max_chunks={max_chunks}, "
+            f"seed={seed}"
         )
 
         # Get chunks from the dataset
         chunks = await self.get_chunks_for_dataset(
             processed_dataset_id,
             max_chunks=max_chunks,
+            seed=seed,
         )
 
         if not chunks:
@@ -289,17 +305,24 @@ class QAGeneratorService:
         dataset_id = str(uuid.uuid4())[:8]
         created_at = datetime.now().isoformat()
 
+        # Compute content hash for reproducibility tracking
+        import hashlib
+        pairs_json = json.dumps(all_pairs, sort_keys=True)
+        content_hash = hashlib.sha256(pairs_json.encode()).hexdigest()
+
         dataset = {
             "id": dataset_id,
             "name": name,
             "pairs": all_pairs,
             "created_at": created_at,
             "source_dataset_id": processed_dataset_id,
+            "content_hash": content_hash,
             "generation_config": {
                 "model": self.model,
                 "pairs_per_chunk": pairs_per_chunk,
                 "max_chunks": max_chunks,
                 "chunks_processed": len(chunks),
+                "seed": seed,
             },
         }
 

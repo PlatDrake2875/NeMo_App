@@ -97,13 +97,19 @@ class FixedSizeChunking(ChunkingStrategy):
 
 
 class SemanticChunking(ChunkingStrategy):
-    """Semantic chunking strategy using embeddings."""
+    """Semantic chunking strategy using embeddings.
+
+    Includes post-processing to enforce max_chunk_size, since semantic
+    chunking can produce arbitrarily large chunks based on similarity.
+    """
 
     def __init__(
         self,
         embedder_model: str = "all-MiniLM-L6-v2",
         breakpoint_threshold_type: str = "percentile",
         breakpoint_threshold_amount: Optional[float] = None,
+        max_chunk_size: int = 2000,
+        chunk_overlap: int = 200,
     ):
         if not SEMANTIC_CHUNKING_AVAILABLE:
             raise ImportError(
@@ -114,6 +120,8 @@ class SemanticChunking(ChunkingStrategy):
         self.embedder_model = embedder_model
         self.breakpoint_threshold_type = breakpoint_threshold_type
         self.breakpoint_threshold_amount = breakpoint_threshold_amount
+        self.max_chunk_size = max_chunk_size
+        self.chunk_overlap = chunk_overlap
 
         # Create embeddings
         embeddings = HuggingFaceEmbeddings(model_name=embedder_model)
@@ -131,20 +139,39 @@ class SemanticChunking(ChunkingStrategy):
                 breakpoint_threshold_type=breakpoint_threshold_type,
             )
 
+        # Fallback splitter for oversized chunks
+        self._fallback_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=max_chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+        )
+
     def split_documents(self, documents: List[Document]) -> List[Document]:
-        chunks = self.splitter.split_documents(documents)
+        semantic_chunks = self.splitter.split_documents(documents)
+
+        # Post-process: split oversized chunks using fallback splitter
+        final_chunks = []
+        for chunk in semantic_chunks:
+            if len(chunk.page_content) > self.max_chunk_size:
+                sub_chunks = self._fallback_splitter.split_documents([chunk])
+                final_chunks.extend(sub_chunks)
+            else:
+                final_chunks.append(chunk)
+
         # Add chunking metadata
-        for chunk in chunks:
+        for chunk in final_chunks:
             if not chunk.metadata:
                 chunk.metadata = {}
             chunk.metadata.update(self.get_config())
-        return chunks
+        return final_chunks
 
     def get_config(self) -> Dict[str, Any]:
         config = {
             "chunking_method": "semantic",
             "embedder_model": self.embedder_model,
             "breakpoint_threshold_type": self.breakpoint_threshold_type,
+            "max_chunk_size": self.max_chunk_size,
+            "chunk_overlap": self.chunk_overlap,
         }
         if self.breakpoint_threshold_amount is not None:
             config["breakpoint_threshold_amount"] = self.breakpoint_threshold_amount
@@ -213,10 +240,15 @@ class ChunkingService:
             embedder_model = kwargs.get("embedder_model", "all-MiniLM-L6-v2")
             breakpoint_threshold_type = kwargs.get("breakpoint_threshold_type", "percentile")
             breakpoint_threshold_amount = kwargs.get("breakpoint_threshold_amount")
+            # Pass chunk_size/overlap for enforcing max size on semantic chunks
+            max_chunk_size = kwargs.get("chunk_size", 2000)
+            chunk_overlap = kwargs.get("chunk_overlap", 200)
             return SemanticChunking(
                 embedder_model=embedder_model,
                 breakpoint_threshold_type=breakpoint_threshold_type,
                 breakpoint_threshold_amount=breakpoint_threshold_amount,
+                max_chunk_size=max_chunk_size,
+                chunk_overlap=chunk_overlap,
             )
 
         else:

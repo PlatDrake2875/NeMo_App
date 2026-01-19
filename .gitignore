@@ -1,6 +1,9 @@
 # === Local Development Overrides ===
 docker-compose.override.yml
 
+# === Deploy script lockfile ===
+.deploy.lock
+
 # === Python ===
 __pycache__/
 *.py[cod]
