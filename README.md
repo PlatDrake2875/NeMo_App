@@ -48,17 +48,59 @@ To use a different model, modify the `MODEL_NAME` environment variable in `docke
 
 ## Quick Start
 
-### Option 1: Full Stack (Recommended)
+### Linux/Ubuntu (Docker Compose)
+
+1. **Create `.env` file** (copy from example or create):
+   ```bash
+   cat > .env << 'EOF'
+   VLLM_MODEL=Qwen/Qwen2.5-1.5B-Instruct
+   VLLM_BASE_URL=http://localhost:8002
+   POSTGRES_HOST=localhost
+   RAG_ENABLED=true
+   EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+   # Add HuggingFace token if using Llama models
+   # HUGGING_FACE_HUB_TOKEN=hf_your_token_here
+   EOF
+   ```
+
+2. **Start the full stack with GPU**:
+   ```bash
+   docker compose --profile fullstack --profile gpu up -d
+   ```
+
+   Or for **CPU-only** (slower):
+   ```bash
+   docker compose --profile fullstack --profile cpu up -d
+   ```
+
+3. **Check services are running**:
+   ```bash
+   docker compose ps
+   ```
+
+4. **Access the application**:
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:8000
+   - vLLM API: http://localhost:8002
+
+5. **View logs**:
+   ```bash
+   docker compose logs -f
+   ```
+
+6. **Stop everything**:
+   ```bash
+   docker compose --profile fullstack --profile gpu down
+   ```
+
+### Windows (PowerShell)
+
 Start everything with one command:
 ```powershell
 .\dev.ps1 up-fullstack
 ```
-This will:
-- Start ChromaDB (vector database)
-- Start the frontend development server
-- Start the FastAPI backend locally
 
-### Option 2: Step-by-Step
+Or step-by-step:
 1. **Start dependencies**:
    ```powershell
    .\dev.ps1 up-rag
@@ -144,6 +186,112 @@ docker compose --profile fullstack --profile gpu down
 4. **Start Chatting**: The guardrails will automatically filter and guide responses based on your selected agent
 
 5. **Upload Documents**: Use the PDF upload feature to add context for RAG-based responses
+
+## Model Configuration
+
+This application supports multiple LLM and embedding models. Configure them via the `.env` file in the project root.
+
+### LLM Models (vLLM)
+
+The LLM is served by vLLM and configured via the `VLLM_MODEL` environment variable.
+
+#### Recommended Models
+
+| Model | Size | License | Notes |
+|-------|------|---------|-------|
+| `Qwen/Qwen2.5-1.5B-Instruct` | 1.5B | Open | No auth required, good quality |
+| `Qwen/Qwen2.5-3B-Instruct` | 3B | Open | Better quality, still fast |
+| `Qwen/Qwen2.5-7B-Instruct` | 7B | Open | Excellent quality |
+| `meta-llama/Llama-3.2-1B-Instruct` | 1B | Gated | Requires HF token + license |
+| `meta-llama/Llama-3.2-3B-Instruct` | 3B | Gated | Requires HF token + license |
+| `meta-llama/Llama-3.1-8B-Instruct` | 8B | Gated | Requires HF token + license |
+| `mistralai/Mistral-7B-Instruct-v0.3` | 7B | Open | No auth required |
+| `microsoft/Phi-3-mini-4k-instruct` | 3.8B | Open | Good reasoning |
+
+#### Switching LLM Models
+
+1. Edit `.env` file:
+   ```bash
+   # For Qwen (no authentication needed)
+   VLLM_MODEL=Qwen/Qwen2.5-1.5B-Instruct
+
+   # For Llama (requires HuggingFace token)
+   VLLM_MODEL=meta-llama/Llama-3.2-1B-Instruct
+   HUGGING_FACE_HUB_TOKEN=hf_your_token_here
+   ```
+
+2. Restart vLLM:
+   ```bash
+   docker compose --profile gpu rm -f vllm-gpu && docker compose --profile gpu up -d vllm-gpu
+   ```
+
+3. Verify the model is loaded:
+   ```bash
+   curl http://localhost:8002/v1/models
+   ```
+
+#### Using Gated Models (Llama)
+
+For Meta Llama models, you need to:
+1. Create a [HuggingFace account](https://huggingface.co/join)
+2. Go to the model page (e.g., [Llama-3.2-1B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct))
+3. Click "Agree and access repository" to accept the license
+4. Create an [access token](https://huggingface.co/settings/tokens)
+5. Add the token to `.env`:
+   ```bash
+   HUGGING_FACE_HUB_TOKEN=hf_your_token_here
+   ```
+
+### Embedding Models
+
+Embeddings are used for RAG (document retrieval). Configure via `EMBEDDING_MODEL_NAME`.
+
+#### Recommended Embedding Models
+
+| Model | Dimensions | Size | Quality |
+|-------|-----------|------|---------|
+| `all-MiniLM-L6-v2` | 384 | 80MB | Good (default) |
+| `all-MiniLM-L12-v2` | 384 | 120MB | Better |
+| `all-mpnet-base-v2` | 768 | 420MB | Best general |
+| `BAAI/bge-small-en-v1.5` | 384 | 130MB | Excellent |
+| `BAAI/bge-base-en-v1.5` | 768 | 440MB | Top tier |
+| `intfloat/e5-small-v2` | 384 | 130MB | Very good |
+
+#### Switching Embedding Models
+
+1. Edit `.env` file:
+   ```bash
+   EMBEDDING_MODEL_NAME=BAAI/bge-small-en-v1.5
+   ```
+
+2. Restart the backend:
+   ```bash
+   docker compose restart backend
+   ```
+
+> **Note:** Changing embedding models requires re-indexing your documents since vector dimensions may differ.
+
+### Example `.env` Configuration
+
+```bash
+# LLM Configuration
+VLLM_MODEL=Qwen/Qwen2.5-1.5B-Instruct
+VLLM_BASE_URL=http://localhost:8002
+
+# Embedding Configuration
+EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+
+# Database
+POSTGRES_HOST=localhost
+
+# HuggingFace (for gated models)
+HUGGING_FACE_HUB_TOKEN=hf_your_token_here
+
+# RAG Settings
+RAG_ENABLED=true
+```
+
+---
 
 ## Guardrails Configuration
 

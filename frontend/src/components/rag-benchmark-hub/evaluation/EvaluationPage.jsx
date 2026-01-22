@@ -40,8 +40,11 @@ import {
   Download,
   History,
   Eye,
+  ListTodo,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
+import { EvaluationTaskProgress } from "./EvaluationTaskProgress";
+import { EvaluationTaskList } from "./EvaluationTaskList";
 
 // Available embedding models
 const AVAILABLE_EMBEDDERS = [
@@ -94,6 +97,47 @@ export function EvaluationPage() {
   const [evaluationRuns, setEvaluationRuns] = useState([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [currentRunId, setCurrentRunId] = useState(null);
+
+  // Background task state
+  const [currentTaskId, setCurrentTaskId] = useState(null);
+  const [showTaskList, setShowTaskList] = useState(false);
+  const [activeTasks, setActiveTasks] = useState([]);
+  const [activeTasksLoading, setActiveTasksLoading] = useState(false);
+
+  // Fetch active/running tasks
+  const fetchActiveTasks = async () => {
+    try {
+      setActiveTasksLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/evaluation/tasks?limit=10`);
+      if (response.ok) {
+        const tasks = await response.json();
+        setActiveTasks(tasks);
+        // If there's a running task and we don't have one selected, select it
+        const runningTask = tasks.find(t => t.status === "running");
+        if (runningTask && !currentTaskId) {
+          setCurrentTaskId(runningTask.id);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch active tasks:", err);
+    } finally {
+      setActiveTasksLoading(false);
+    }
+  };
+
+  // Auto-refresh active tasks when there are running ones
+  useEffect(() => {
+    fetchActiveTasks();
+
+    const interval = setInterval(() => {
+      const hasRunning = activeTasks.some(t => t.status === "running" || t.status === "pending");
+      if (hasRunning) {
+        fetchActiveTasks();
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [activeTasks.length]);
 
   // Fetch collections, eval datasets, and evaluation runs on mount
   useEffect(() => {
@@ -264,8 +308,8 @@ export function EvaluationPage() {
 
       setCreationStatus("");
 
-      // Now run the evaluation
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/run`, {
+      // Start evaluation as background task
+      const response = await fetch(`${API_BASE_URL}/api/evaluation/tasks/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -282,22 +326,36 @@ export function EvaluationPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setResults(data);
-        // Refresh evaluation runs list to include the new run
-        fetchEvaluationRuns();
+        setCurrentTaskId(data.task_id);
+        // Task started - progress will be shown via EvaluationTaskProgress component
       } else {
         const error = await response.json();
         const errorMsg = error.detail || error.message || JSON.stringify(error);
-        alert(`Evaluation failed: ${errorMsg}`);
+        alert(`Failed to start evaluation: ${errorMsg}`);
+        setIsEvaluating(false);
       }
     } catch (err) {
-      console.error("Error running evaluation:", err);
-      alert(`Failed to run evaluation: ${err.message}`);
-    } finally {
+      console.error("Error starting evaluation:", err);
+      alert(`Failed to start evaluation: ${err.message}`);
       setIsEvaluating(false);
+    } finally {
       setCreationStatus("");
-      setEvaluationProgress(100);
     }
+  };
+
+  // Handle task completion
+  const handleTaskComplete = (task) => {
+    setIsEvaluating(false);
+    setCurrentTaskId(null);
+    fetchEvaluationRuns();
+    if (task.result_run_id) {
+      loadEvaluationRun(task.result_run_id);
+    }
+  };
+
+  // Handle viewing results from task list
+  const handleViewResults = (runId) => {
+    loadEvaluationRun(runId);
   };
 
   // Create collection and wait for completion (returns the new collection or null)
@@ -782,24 +840,103 @@ export function EvaluationPage() {
           </Card>
 
           {/* Run Evaluation Button */}
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={runEvaluation}
-            disabled={isEvaluating || !config.collection}
-          >
-            {isEvaluating ? (
-              <>
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                {creationStatus || "Running Evaluation..."}
-              </>
-            ) : (
-              <>
-                <Play className="h-5 w-5 mr-2" />
-                Run Evaluation {selectedEvalDataset !== "none" ? `(${evalDatasets.find(d => d.id === selectedEvalDataset)?.pair_count || 0} pairs)` : "(Quick Test)"}
-              </>
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              className="flex-1"
+              size="lg"
+              onClick={runEvaluation}
+              disabled={isEvaluating || !config.collection}
+            >
+              {isEvaluating && !currentTaskId ? (
+                <>
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  {creationStatus || "Starting..."}
+                </>
+              ) : (
+                <>
+                  <Play className="h-5 w-5 mr-2" />
+                  Run Evaluation {selectedEvalDataset !== "none" ? `(${evalDatasets.find(d => d.id === selectedEvalDataset)?.pair_count || 0} pairs)` : "(Quick Test)"}
+                </>
+              )}
+            </Button>
+            <Button
+              variant={showTaskList ? "default" : "outline"}
+              size="lg"
+              onClick={() => setShowTaskList(!showTaskList)}
+              className="px-3 relative"
+              title="View all tasks"
+            >
+              <ListTodo className="h-5 w-5" />
+              {activeTasks.filter(t => t.status === "running" || t.status === "pending").length > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center animate-pulse">
+                  {activeTasks.filter(t => t.status === "running" || t.status === "pending").length}
+                </span>
+              )}
+            </Button>
+          </div>
+
+          {/* Active Running Tasks - Always visible when there are running tasks */}
+          {activeTasks.filter(t => t.status === "running" || t.status === "pending").length > 0 && (
+            <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                  Active Evaluations
+                  <Badge variant="secondary" className="ml-auto">
+                    {activeTasks.filter(t => t.status === "running" || t.status === "pending").length} running
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {activeTasks
+                  .filter(t => t.status === "running" || t.status === "pending")
+                  .map(task => (
+                    <div
+                      key={task.id}
+                      className="p-3 rounded-lg border bg-background cursor-pointer hover:bg-muted/50 transition-colors"
+                      onClick={() => setCurrentTaskId(task.id)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-sm">{task.eval_dataset_name || "Quick Test"}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {task.current_pair}/{task.total_pairs} ({task.progress_percent.toFixed(0)}%)
+                        </Badge>
+                      </div>
+                      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 transition-all duration-500"
+                          style={{ width: `${task.progress_percent}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">
+                        {task.current_step || "Processing..."}
+                      </p>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Current Task Progress (detailed view when clicked) */}
+          {currentTaskId && (
+            <EvaluationTaskProgress
+              taskId={currentTaskId}
+              onComplete={(task) => {
+                handleTaskComplete(task);
+                fetchActiveTasks();
+              }}
+              onViewResults={handleViewResults}
+            />
+          )}
+
+          {/* Task List (toggleable - shows all tasks including completed) */}
+          {showTaskList && (
+            <EvaluationTaskList
+              onSelectTask={(taskId) => setCurrentTaskId(taskId)}
+              onViewResults={handleViewResults}
+              limit={10}
+            />
+          )}
       </div>
 
       {/* Evaluation History */}
@@ -847,6 +984,9 @@ export function EvaluationPage() {
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                       <span>{new Date(run.created_at).toLocaleString()}</span>
+                      {run.config?.llm_model && (
+                        <span className="font-mono">{run.config.llm_model.split("/").pop()}</span>
+                      )}
                       {run.metrics && (
                         <>
                           <span>Correctness: {((run.metrics.answer_correctness || 0) * 100).toFixed(0)}%</span>
@@ -1113,6 +1253,9 @@ export function EvaluationPage() {
                 </Badge>
                 <Badge variant={results.config?.use_rag ? "default" : "secondary"}>
                   RAG: {results.config?.use_rag ? "ON" : "OFF"}
+                </Badge>
+                <Badge variant="outline">
+                  LLM: {(results.config?.llm_model || "Unknown").split("/").pop()}
                 </Badge>
                 <Badge variant="outline">
                   Embedder: {(results.config?.embedder || config.embedder).split("/").pop()}

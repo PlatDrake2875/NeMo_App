@@ -341,6 +341,7 @@ async def run_evaluation(request: RunEvaluationRequest):
             top_k=request.top_k,
             temperature=request.temperature,
             embedder=request.embedder,
+            llm_model=VLLM_MODEL,
         ),
     )
 
@@ -439,12 +440,17 @@ async def list_evaluation_runs():
         try:
             with open(path) as f:
                 data = json.load(f)
+                config = data.get("config", {})
+                # Backfill llm_model for existing runs that don't have it
+                if "llm_model" not in config:
+                    config["llm_model"] = VLLM_MODEL
                 runs.append({
                     "id": data["id"],
                     "name": data.get("name", "Unknown"),
                     "created_at": data["created_at"],
                     "pair_count": len(data.get("results", [])),
                     "metrics": data.get("metrics", {}),
+                    "config": config,
                 })
         except Exception as e:
             logger.error(f"Error loading run {path}: {e}")
@@ -458,7 +464,11 @@ async def get_evaluation_run(run_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     with open(path) as f:
-        return json.load(f)
+        data = json.load(f)
+    # Backfill llm_model for existing runs that don't have it
+    if "config" in data and "llm_model" not in data["config"]:
+        data["config"]["llm_model"] = VLLM_MODEL
+    return data
 
 
 @router.delete("/runs/{run_id}")
@@ -1124,3 +1134,97 @@ async def deduplicate_dataset(
     except Exception as e:
         logger.error(f"Deduplication failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Deduplication failed: {str(e)}")
+
+
+# =============================================================================
+# Background Evaluation Task Endpoints
+# =============================================================================
+
+@router.post("/tasks/start")
+async def start_evaluation_task(request: RunEvaluationRequest):
+    """
+    Start an evaluation as a background task.
+
+    Returns immediately with a task ID that can be used to track progress.
+    The evaluation runs in the background and results are saved when complete.
+
+    This is the recommended way to run evaluations as it:
+    - Survives browser disconnections
+    - Provides real-time progress updates
+    - Can be cancelled if needed
+    """
+    from services.evaluation_task_service import get_evaluation_task_service
+
+    service = get_evaluation_task_service()
+
+    task_id = await service.create_task(
+        eval_dataset_id=request.eval_dataset_id,
+        collection_name=request.collection_name,
+        use_rag=request.use_rag,
+        use_colbert=request.use_colbert,
+        top_k=request.top_k,
+        temperature=request.temperature,
+        embedder=request.embedder,
+    )
+
+    return {"task_id": task_id, "message": "Evaluation started"}
+
+
+@router.get("/tasks/{task_id}")
+async def get_evaluation_task(task_id: str):
+    """
+    Get the status and progress of an evaluation task.
+
+    Returns:
+        Task details including:
+        - status: pending, running, completed, failed, cancelled
+        - current_pair: Current pair being evaluated
+        - total_pairs: Total pairs to evaluate
+        - progress_percent: Completion percentage
+        - current_step: Human-readable current action
+        - result_run_id: ID of saved run (when completed)
+    """
+    from services.evaluation_task_service import get_evaluation_task_service
+
+    service = get_evaluation_task_service()
+    task = service.get_task(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    return task
+
+
+@router.get("/tasks")
+async def list_evaluation_tasks(limit: int = 20):
+    """
+    List recent evaluation tasks.
+
+    Returns the most recent tasks ordered by creation time.
+    """
+    from services.evaluation_task_service import get_evaluation_task_service
+
+    service = get_evaluation_task_service()
+    return service.list_tasks(limit=limit)
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_evaluation_task(task_id: str):
+    """
+    Cancel a running evaluation task.
+
+    Only running tasks can be cancelled. Completed or failed tasks
+    cannot be cancelled.
+    """
+    from services.evaluation_task_service import get_evaluation_task_service
+
+    service = get_evaluation_task_service()
+    success = await service.cancel_task(task_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task {task_id} cannot be cancelled (not running or not found)"
+        )
+
+    return {"message": f"Task {task_id} cancelled"}

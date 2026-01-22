@@ -1,7 +1,7 @@
 """
 Q&A Generator Service - Generate evaluation Q&A pairs from document chunks.
 
-Uses OpenRouter API to generate question-answer pairs suitable for
+Uses OpenRouter API or local vLLM to generate question-answer pairs suitable for
 RAG evaluation from processed dataset chunks.
 """
 
@@ -13,10 +13,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from config import POSTGRES_CONNECTION_STRING, OPENROUTER_DEFAULT_MODEL
+from config import (
+    POSTGRES_CONNECTION_STRING,
+    OPENROUTER_DEFAULT_MODEL,
+    OPENROUTER_API_KEY,
+    VLLM_BASE_URL,
+    VLLM_MODEL,
+)
 from services.openrouter_client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
@@ -65,11 +72,25 @@ Respond with a JSON object in this exact format:
 
 
 class QAGeneratorService:
-    """Generate Q&A pairs from document chunks using OpenRouter."""
+    """Generate Q&A pairs from document chunks using OpenRouter or vLLM."""
 
-    def __init__(self, model: Optional[str] = None):
-        self.model = model or OPENROUTER_DEFAULT_MODEL
-        self.client = OpenRouterClient()
+    def __init__(self, model: Optional[str] = None, use_vllm: Optional[bool] = None):
+        # Determine whether to use vLLM or OpenRouter
+        # Use vLLM if explicitly requested OR if OpenRouter API key is not set
+        if use_vllm is None:
+            use_vllm = not OPENROUTER_API_KEY
+
+        self.use_vllm = use_vllm
+
+        if self.use_vllm:
+            self.model = model or VLLM_MODEL
+            self.client = None  # Will use direct HTTP calls to vLLM
+            logger.info(f"QAGenerator using local vLLM with model: {self.model}")
+        else:
+            self.model = model or OPENROUTER_DEFAULT_MODEL
+            self.client = OpenRouterClient()
+            logger.info(f"QAGenerator using OpenRouter with model: {self.model}")
+
         self._engine = None
         self._session_maker = None
 
@@ -105,10 +126,10 @@ class QAGeneratorService:
             List of chunk dicts with content and metadata
         """
         with self.session_maker() as session:
-            # Get the processed dataset info
+            # Get the processed dataset info including vector_backend
             result = session.execute(
                 text("""
-                    SELECT pd.collection_name, pd.name, rd.name as raw_dataset_name
+                    SELECT pd.collection_name, pd.name, rd.name as raw_dataset_name, pd.vector_backend
                     FROM processed_datasets pd
                     LEFT JOIN raw_datasets rd ON pd.raw_dataset_id = rd.id
                     WHERE pd.id = :dataset_id
@@ -122,51 +143,181 @@ class QAGeneratorService:
 
             collection_name = row[0]
             dataset_name = row[1]
+            vector_backend = row[3] if len(row) > 3 else "pgvector"
 
-            # Query chunks from langchain_pg_embedding table
-            # Use deterministic ordering if seed is provided
-            limit_clause = f"LIMIT {max_chunks}" if max_chunks else ""
-            if seed is not None:
-                # Deterministic ordering using hash of uuid combined with seed
-                # This ensures same seed always produces same ordering
-                order_clause = f"ORDER BY md5(uuid::text || '{seed}'::text)"
+            # Route to appropriate backend
+            if vector_backend == "qdrant":
+                return await self._get_chunks_from_qdrant(
+                    collection_name, dataset_name, max_chunks, seed
+                )
             else:
-                order_clause = "ORDER BY RANDOM()"
+                return await self._get_chunks_from_pgvector(
+                    session, collection_name, dataset_name, max_chunks, seed
+                )
 
-            chunks_result = session.execute(
-                text(f"""
-                    SELECT document, cmetadata, uuid
-                    FROM langchain_pg_embedding
-                    WHERE collection_id = (
-                        SELECT uuid FROM langchain_pg_collection
-                        WHERE name = :collection_name
-                    )
-                    {order_clause}
-                    {limit_clause}
-                """),
-                {"collection_name": collection_name}
+    async def _get_chunks_from_pgvector(
+        self,
+        session,
+        collection_name: str,
+        dataset_name: str,
+        max_chunks: Optional[int] = None,
+        seed: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve chunks from PostgreSQL/pgvector backend."""
+        # Query chunks from langchain_pg_embedding table
+        # Use deterministic ordering if seed is provided
+        limit_clause = f"LIMIT {max_chunks}" if max_chunks else ""
+        if seed is not None:
+            # Deterministic ordering using hash of id combined with seed
+            # This ensures same seed always produces same ordering
+            order_clause = f"ORDER BY md5(id::text || '{seed}'::text)"
+        else:
+            order_clause = "ORDER BY RANDOM()"
+
+        chunks_result = session.execute(
+            text(f"""
+                SELECT document, cmetadata, id
+                FROM langchain_pg_embedding
+                WHERE collection_id = (
+                    SELECT uuid FROM langchain_pg_collection
+                    WHERE name = :collection_name
+                )
+                {order_clause}
+                {limit_clause}
+            """),
+            {"collection_name": collection_name}
+        )
+
+        chunks = []
+        for chunk_row in chunks_result:
+            content = chunk_row[0]
+            metadata = chunk_row[1] if chunk_row[1] else {}
+            chunk_uuid = str(chunk_row[2]) if len(chunk_row) > 2 else None
+
+            # Extract source info from metadata
+            source_info = metadata.get("source", "Unknown source")
+            if "page" in metadata:
+                source_info += f", Page {metadata['page']}"
+
+            chunks.append({
+                "content": content,
+                "metadata": metadata,
+                "source_info": source_info,
+                "dataset_name": dataset_name,
+                "chunk_id": chunk_uuid,
+            })
+
+        return chunks
+
+    async def _get_chunks_from_qdrant(
+        self,
+        collection_name: str,
+        dataset_name: str,
+        max_chunks: Optional[int] = None,
+        seed: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve chunks from Qdrant backend."""
+        from services.qdrant_vectorstore import get_qdrant_service
+
+        qdrant_service = get_qdrant_service()
+
+        # Get all documents from the collection
+        limit = max_chunks if max_chunks else 10000
+        documents = qdrant_service.get_all_documents(
+            collection_name=collection_name,
+            limit=limit,
+        )
+
+        if not documents:
+            logger.warning(f"No documents found in Qdrant collection '{collection_name}'")
+            return []
+
+        chunks = []
+        for doc in documents:
+            content = doc.content
+            metadata = doc.metadata or {}
+
+            # Extract source info from metadata
+            source_info = metadata.get("source", metadata.get("original_filename", "Unknown source"))
+            if "page" in metadata:
+                source_info += f", Page {metadata['page']}"
+
+            chunks.append({
+                "content": content,
+                "metadata": metadata,
+                "source_info": source_info,
+                "dataset_name": dataset_name,
+                "chunk_id": doc.id,
+            })
+
+        # Apply deterministic ordering if seed is provided
+        if seed is not None:
+            import hashlib
+            chunks.sort(key=lambda c: hashlib.md5(f"{c['chunk_id']}{seed}".encode()).hexdigest())
+        else:
+            import random
+            random.shuffle(chunks)
+
+        # Apply limit after shuffling/sorting
+        if max_chunks and len(chunks) > max_chunks:
+            chunks = chunks[:max_chunks]
+
+        logger.info(f"Retrieved {len(chunks)} chunks from Qdrant collection '{collection_name}'")
+        return chunks
+
+    async def _call_vllm(
+        self,
+        prompt: str,
+        system_prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 1024,
+    ) -> Dict[str, Any]:
+        """Call local vLLM API for JSON generation."""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        # vLLM uses port 8000 inside docker network, but we connect via VLLM_BASE_URL
+        # The backend connects to vLLM via the docker network alias "vllm"
+        vllm_url = VLLM_BASE_URL.rstrip("/")
+        if "localhost" in vllm_url or "127.0.0.1" in vllm_url:
+            # Running locally, use the configured URL
+            pass
+        else:
+            # Inside docker, use the service name
+            vllm_url = "http://vllm:8000"
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{vllm_url}/v1/chat/completions",
+                json=payload,
+                headers={"Content-Type": "application/json"},
             )
 
-            chunks = []
-            for chunk_row in chunks_result:
-                content = chunk_row[0]
-                metadata = chunk_row[1] if chunk_row[1] else {}
-                chunk_uuid = str(chunk_row[2]) if len(chunk_row) > 2 else None
+            if response.status_code != 200:
+                raise Exception(f"vLLM API error: {response.status_code} - {response.text}")
 
-                # Extract source info from metadata
-                source_info = metadata.get("source", "Unknown source")
-                if "page" in metadata:
-                    source_info += f", Page {metadata['page']}"
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
 
-                chunks.append({
-                    "content": content,
-                    "metadata": metadata,
-                    "source_info": source_info,
-                    "dataset_name": dataset_name,
-                    "chunk_id": chunk_uuid,
-                })
-
-            return chunks
+            # Parse JSON from response
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # Try to extract JSON from the response
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group())
+                raise ValueError(f"Could not parse JSON from vLLM response: {content[:500]}")
 
     async def generate_pairs_for_chunk(
         self,
@@ -197,13 +348,23 @@ class QAGeneratorService:
         )
 
         try:
-            response = await self.client.generate_json(
-                prompt=prompt,
-                system_prompt=QA_GENERATION_SYSTEM_PROMPT,
-                model=self.model,
-                temperature=0.3,
-                max_tokens=1024,
-            )
+            if self.use_vllm:
+                # Use local vLLM
+                response = await self._call_vllm(
+                    prompt=prompt,
+                    system_prompt=QA_GENERATION_SYSTEM_PROMPT,
+                    temperature=0.3,
+                    max_tokens=1024,
+                )
+            else:
+                # Use OpenRouter
+                response = await self.client.generate_json(
+                    prompt=prompt,
+                    system_prompt=QA_GENERATION_SYSTEM_PROMPT,
+                    model=self.model,
+                    temperature=0.3,
+                    max_tokens=1024,
+                )
 
             pairs = response.get("pairs", [])
 

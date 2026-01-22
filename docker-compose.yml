@@ -11,7 +11,7 @@ services:
     volumes:
       - ./backend:/app
       - /app/.venv  # Prevent overwriting virtual env
-      - vllm_cache:/root/.cache/huggingface  # Share HF cache with vLLM for model downloads
+      - ${DATA_DIR:-./data}/vllm_cache:/root/.cache/huggingface  # Share HF cache with vLLM for model downloads
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -19,7 +19,7 @@ services:
       - POSTGRES_USER=nemo_user
       - POSTGRES_PASSWORD=nemo_password
       - VLLM_BASE_URL=http://vllm:8000  # Access vLLM service
-      - VLLM_MODEL=meta-llama/Llama-3.2-3B-Instruct
+      - VLLM_MODEL=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
       - EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
       - USE_GUARDRAILS=false
       - RAG_ENABLED=true
@@ -67,7 +67,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
     profiles: ["fullstack"]
     environment:
       - POSTGRES_DB=nemo_rag
@@ -88,7 +88,7 @@ services:
       - "6333:6333"  # REST API
       - "6334:6334"  # gRPC
     volumes:
-      - qdrant_data:/qdrant/storage
+      - ${DATA_DIR:-./data}/qdrant:/qdrant/storage
     profiles: ["fullstack"]
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
@@ -115,13 +115,13 @@ services:
     ports:
       - "8002:8000"
     volumes:
-      - vllm_cache:/root/.cache/huggingface  # Shared cache for downloaded models
+      - ${DATA_DIR:-./data}/vllm_cache:/root/.cache/huggingface  # Shared cache for downloaded models
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # Required for gated models
       - HF_HOME=/root/.cache/huggingface  # Explicit cache location
     command:
-      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
-      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
+      - --model=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
+      - --served-model-name=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
       - --host=0.0.0.0
       - --port=8000
       - --trust-remote-code
@@ -157,15 +157,15 @@ services:
     ports:
       - "8002:8000"
     volumes:
-      - vllm_cache:/root/.cache/huggingface  # Shared cache for downloaded models
+      - ${DATA_DIR:-./data}/vllm_cache:/root/.cache/huggingface  # Shared cache for downloaded models
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}  # Required for gated models
       - HF_HOME=/root/.cache/huggingface  # Explicit cache location
       - VLLM_CPU_KVCACHE_SPACE=10  # KV Cache size in GiB
       - VLLM_CPU_OMP_THREADS_BIND=auto  # CPU thread binding
     command:
-      - --model=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
-      - --served-model-name=${VLLM_MODEL:-meta-llama/Llama-3.2-1B-Instruct}
+      - --model=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
+      - --served-model-name=${VLLM_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}
       - --host=0.0.0.0
       - --port=8000
       - --dtype=bfloat16
@@ -184,7 +184,6 @@ services:
       retries: 5
       start_period: 120s  # Model download and loading can take time
 
-volumes:
-  postgres_data:
-  vllm_cache:
-  qdrant_data:
+# Volumes are now bind-mounted to ${DATA_DIR} (configured in .env)
+# Default: ./data if DATA_DIR is not set
+# Subdirectories: postgres/, qdrant/, vllm_cache/

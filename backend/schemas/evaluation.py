@@ -192,6 +192,7 @@ class EvalConfig(BaseModel):
     top_k: int
     temperature: float
     embedder: str = "sentence-transformers/all-MiniLM-L6-v2"
+    llm_model: Optional[str] = None  # LLM model used for answer generation
 
 
 class RunEvaluationResponse(BaseModel):

@@ -32,7 +32,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange 
       case "generate-qa":
         return <GenerateQAPage />;
       case "evaluation":
-        return <EvaluationDashboard />;
+        return <EvaluationPage />;
       case "annotation":
         return <AnnotationWorkbench />;
       case "huggingface":

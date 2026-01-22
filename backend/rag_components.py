@@ -601,6 +601,41 @@ async def get_rag_context_prefix(
         return None
 
 
+def _get_collection_backend(collection_name: str) -> str:
+    """
+    Look up the vector backend for a collection from the database.
+
+    Args:
+        collection_name: Name of the collection
+
+    Returns:
+        The vector backend ('pgvector' or 'qdrant'), defaults to VECTOR_STORE_BACKEND
+    """
+    from sqlalchemy import create_engine, text
+    from config import POSTGRES_CONNECTION_STRING
+
+    try:
+        engine = create_engine(POSTGRES_CONNECTION_STRING)
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT vector_backend FROM processed_datasets
+                    WHERE collection_name = :collection_name
+                    LIMIT 1
+                """),
+                {"collection_name": collection_name}
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                logger.info(f"[RAG] Collection '{collection_name}' uses backend: {row[0]}")
+                return row[0]
+    except Exception as e:
+        logger.warning(f"Could not look up backend for collection '{collection_name}': {e}")
+
+    # Fall back to default
+    return VECTOR_STORE_BACKEND
+
+
 async def _retrieve_from_collection(
     query: str,
     collection_name: str,
@@ -630,17 +665,20 @@ async def _retrieve_from_collection(
         # Handle nomic models which require trust_remote_code=True
         model_kwargs = {"trust_remote_code": True} if "nomic" in model_name else {}
 
-        # Create embedding function
+        # Create embedding function (model_kwargs must be a dict, not None)
         embedding_function = HuggingFaceEmbeddings(
             model_name=model_name,
-            model_kwargs=model_kwargs if model_kwargs else None
+            model_kwargs=model_kwargs
         )
 
-        # Create vectorstore for the specified collection
+        # Look up the actual backend for this collection
+        backend = _get_collection_backend(collection_name)
+
+        # Create vectorstore for the specified collection with correct backend
         vectorstore = create_vectorstore(
             embedding_function=embedding_function,
             collection_name=collection_name,
-            backend=VECTOR_STORE_BACKEND,
+            backend=backend,
             async_mode=True,
         )
 
@@ -652,7 +690,7 @@ async def _retrieve_from_collection(
         )
 
         # Retrieve candidates
-        logger.info(f"[RAG] Retrieving from collection '{collection_name}' with k={first_stage_k}")
+        logger.info(f"[RAG] Retrieving from collection '{collection_name}' (backend={backend}) with k={first_stage_k}")
         candidates = await retriever.ainvoke(query)
 
         if not candidates:

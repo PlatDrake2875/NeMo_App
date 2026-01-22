@@ -28,7 +28,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 
 from config import POSTGRES_CONNECTION_STRING
-from enums import SourceType, FileType, ProcessingStatus
+from enums import SourceType, FileType, ProcessingStatus, EvaluationTaskStatus
 
 Base = declarative_base()
 
@@ -179,6 +179,75 @@ class LLMExtractedMetadata(Base):
 
     def __repr__(self):
         return f"<LLMExtractedMetadata(id={self.id}, file_id={self.raw_file_id}, model='{self.extraction_model}')>"
+
+
+class EvaluationTask(Base):
+    """Background evaluation tasks with progress tracking."""
+    __tablename__ = "evaluation_tasks"
+
+    id = Column(String(36), primary_key=True)  # UUID
+
+    # Task configuration (stored as JSON for flexibility)
+    config = Column(JSON, nullable=False)
+    # Example: {
+    #     "eval_dataset_id": "abc123",
+    #     "collection_name": "my_collection",
+    #     "use_rag": true,
+    #     "use_colbert": true,
+    #     "top_k": 5,
+    #     "temperature": 0.1,
+    #     "embedder": "sentence-transformers/all-MiniLM-L6-v2"
+    # }
+
+    # Status tracking
+    status = Column(String(20), nullable=False, default=EvaluationTaskStatus.PENDING.value)
+
+    # Progress tracking
+    current_pair = Column(Integer, nullable=False, default=0)
+    total_pairs = Column(Integer, nullable=False, default=0)
+    current_step = Column(String(200), nullable=True)  # Human-readable current action
+
+    # Timing
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Results
+    result_run_id = Column(String(36), nullable=True)  # Links to saved evaluation run
+    error_message = Column(Text, nullable=True)
+
+    # Metadata
+    eval_dataset_name = Column(String(200), nullable=True)
+    collection_display_name = Column(String(200), nullable=True)
+
+    def __repr__(self):
+        return f"<EvaluationTask(id={self.id}, status='{self.status}', progress={self.current_pair}/{self.total_pairs})>"
+
+    @property
+    def progress_percent(self) -> float:
+        """Calculate progress percentage."""
+        if self.total_pairs == 0:
+            return 0.0
+        return round((self.current_pair / self.total_pairs) * 100, 1)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "status": self.status,
+            "current_pair": self.current_pair,
+            "total_pairs": self.total_pairs,
+            "progress_percent": self.progress_percent,
+            "current_step": self.current_step,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "result_run_id": self.result_run_id,
+            "error_message": self.error_message,
+            "eval_dataset_name": self.eval_dataset_name,
+            "collection_display_name": self.collection_display_name,
+            "config": self.config,
+        }
 
 
 class Dataset(Base):
