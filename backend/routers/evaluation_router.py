@@ -197,47 +197,50 @@ async def delete_eval_dataset(dataset_id: str):
     return {"status": "deleted", "id": dataset_id}
 
 
-# Pre-configured HuggingFace datasets for one-click import
+# Pre-configured HuggingFace datasets for one-click import (all as raw datasets)
 HUGGINGFACE_DATASETS = {
-    "microsoft/wiki_qa": {
-        "name": "Microsoft Wiki QA",
-        "description": "Q&A pairs from Wikipedia, ~3k questions",
-        "split": "train",
-        "question_field": "question",
-        "answer_field": "answer",
-        "filter_fn": lambda row: row.get("label") == 1,  # Only positive examples
-    },
     "squad": {
         "name": "SQuAD v1.1",
-        "description": "Stanford Question Answering Dataset, ~87k questions",
+        "description": "Stanford Question Answering Dataset - Wikipedia paragraphs (~87k docs)",
         "split": "train",
-        "question_field": "question",
-        "answer_field": "answers",  # SQuAD has answers as dict with 'text' list
-        "answer_extractor": lambda row: row["answers"]["text"][0] if row["answers"]["text"] else "",
-    },
-    "trivia_qa": {
-        "name": "TriviaQA",
-        "description": "Trivia questions with evidence documents",
-        "config": "rc",
-        "split": "train",
-        "question_field": "question",
-        "answer_field": "answer",
-        "answer_extractor": lambda row: row["answer"]["value"] if row["answer"] else "",
+        "context_field": "context",  # The paragraph containing the answer
+        "title_field": "title",  # Article title
     },
     "hotpot_qa": {
         "name": "HotpotQA",
-        "description": "Multi-hop reasoning questions",
+        "description": "Multi-hop reasoning questions with Wikipedia context (~90k docs)",
         "config": "fullwiki",
         "split": "train",
-        "question_field": "question",
-        "answer_field": "answer",
+        "context_extractor": lambda row: "\n\n".join([
+            f"{title}\n{''.join(sents)}"
+            for title, sents in zip(row.get("context", {}).get("title", []), row.get("context", {}).get("sentences", []))
+        ]) if row.get("context") else "",
+    },
+    "microsoft/wiki_qa": {
+        "name": "Microsoft Wiki QA",
+        "description": "Q&A pairs from Wikipedia with document titles (~3k items)",
+        "split": "train",
+        "filter_fn": lambda row: row.get("label") == 1,  # Only positive examples
+        # Wiki QA doesn't have full documents, use question+answer as content
+        "context_extractor": lambda row: f"Question: {row.get('question', '')}\n\nAnswer: {row.get('answer', '')}",
+        "title_field": "document_title",
+    },
+    "trivia_qa": {
+        "name": "TriviaQA",
+        "description": "Trivia questions with Wikipedia/web evidence documents (~95k docs)",
+        "config": "rc",
+        "split": "train",
+        # TriviaQA has entity_pages with Wikipedia content
+        "context_extractor": lambda row: "\n\n".join(
+            row.get("entity_pages", {}).get("wiki_context", [])[:3]  # Take first 3 wiki contexts
+        ) if row.get("entity_pages", {}).get("wiki_context") else "",
     },
 }
 
 
 @router.get("/import/datasets")
 async def list_importable_datasets():
-    """List available HuggingFace datasets for import."""
+    """List available HuggingFace datasets for import as raw datasets."""
     return [
         {
             "id": dataset_id,
@@ -248,18 +251,21 @@ async def list_importable_datasets():
     ]
 
 
-@router.post("/import/huggingface")
-async def import_huggingface_dataset(
+@router.post("/import/huggingface-as-raw")
+async def import_huggingface_as_raw(
     dataset_id: str,
     limit: int = 500,
     custom_name: Optional[str] = None,
 ):
     """
-    Import a dataset from HuggingFace.
+    Import a HuggingFace dataset as a raw dataset (documents/contexts).
+
+    This extracts the document content from HF datasets (like SQuAD's context paragraphs)
+    and creates a raw dataset that can be preprocessed and used for Q&A generation.
 
     Args:
-        dataset_id: HuggingFace dataset identifier (e.g., 'squad', 'microsoft/wiki_qa')
-        limit: Maximum number of rows to import
+        dataset_id: HuggingFace dataset identifier (e.g., 'squad')
+        limit: Maximum number of documents to import
         custom_name: Optional custom name for the dataset
     """
     if dataset_id not in HUGGINGFACE_DATASETS:
@@ -279,73 +285,115 @@ async def import_huggingface_dataset(
         if "config" in config:
             load_args.append(config["config"])
 
-        logger.info(f"Loading dataset {dataset_id} from HuggingFace...")
+        logger.info(f"Loading dataset {dataset_id} from HuggingFace for raw import...")
         hf_dataset = load_dataset(*load_args, **load_kwargs)
 
-        # Extract Q&A pairs
-        pairs = []
-        filter_fn = config.get("filter_fn")
-        answer_extractor = config.get("answer_extractor")
+        # Extract unique documents/contexts
+        documents = {}  # Use dict to deduplicate by content
+        context_field = config.get("context_field")
+        context_extractor = config.get("context_extractor")
+        title_field = config.get("title_field")
 
         for i, row in enumerate(hf_dataset):
-            if limit and len(pairs) >= limit:
+            if limit and len(documents) >= limit:
                 break
 
-            # Apply filter if defined
-            if filter_fn and not filter_fn(row):
-                continue
-
-            question = row[config["question_field"]]
-
-            # Extract answer based on dataset format
-            if answer_extractor:
-                answer = answer_extractor(row)
+            # Extract context
+            if context_extractor:
+                context = context_extractor(row)
+            elif context_field:
+                context = row.get(context_field, "")
             else:
-                answer = row[config["answer_field"]]
-
-            # Skip empty answers
-            if not answer or not question:
                 continue
 
-            pairs.append({
-                "query": question,
-                "ground_truth": answer,
-            })
+            if not context or len(context) < 50:  # Skip very short contexts
+                continue
 
-        if not pairs:
-            raise HTTPException(status_code=400, detail="No valid Q&A pairs found in dataset")
+            # Get title if available
+            title = row.get(title_field, f"doc_{len(documents)}") if title_field else f"doc_{len(documents)}"
 
-        # Create and save dataset
-        new_dataset_id = str(uuid.uuid4())[:8]
-        created_at = datetime.now().isoformat()
-        dataset_name = custom_name or f"{config['name']} ({len(pairs)} pairs)"
+            # Deduplicate by content hash
+            content_key = hashlib.md5(context.encode()).hexdigest()[:16]
+            if content_key not in documents:
+                documents[content_key] = {
+                    "title": title,
+                    "content": context,
+                }
 
-        data = {
-            "id": new_dataset_id,
-            "name": dataset_name,
-            "pairs": pairs,
-            "created_at": created_at,
-            "source": f"huggingface:{dataset_id}",
-            "import_limit": limit,
-        }
+        if not documents:
+            raise HTTPException(status_code=400, detail="No valid documents found in dataset")
 
-        _save_dataset(new_dataset_id, data)
-        logger.info(f"Imported {len(pairs)} pairs from {dataset_id}")
+        # Create raw dataset
+        dataset_name = custom_name or f"{config['name']} Documents"
 
-        return EvalDatasetResponse(
-            id=new_dataset_id,
-            name=dataset_name,
-            pair_count=len(pairs),
-            created_at=created_at,
-        )
+        with get_db() as db:
+            # Check if dataset with this name already exists
+            existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dataset '{dataset_name}' already exists. Use a different name."
+                )
 
+            # Create raw dataset
+            raw_dataset = RawDataset(
+                name=dataset_name,
+                description=f"Imported from HuggingFace: {dataset_id} ({len(documents)} documents)",
+                source_type="huggingface",
+                source_identifier=dataset_id,
+            )
+            db.add(raw_dataset)
+            db.flush()
+
+            # Create a single JSON file with all documents
+            docs_content = json.dumps({
+                "source": f"huggingface:{dataset_id}",
+                "document_count": len(documents),
+                "documents": [
+                    {"title": doc["title"], "content": doc["content"]}
+                    for doc in documents.values()
+                ]
+            }, ensure_ascii=False, indent=2)
+
+            content_bytes = docs_content.encode('utf-8')
+            content_hash = hashlib.sha256(content_bytes).hexdigest()
+
+            raw_file = RawFile(
+                raw_dataset_id=raw_dataset.id,
+                filename=f"{dataset_id.replace('/', '_')}_documents.json",
+                file_type="json",
+                mime_type="application/json",
+                file_content=content_bytes,
+                size_bytes=len(content_bytes),
+                content_hash=content_hash,
+            )
+            db.add(raw_file)
+
+            # Update dataset stats
+            raw_dataset.total_file_count = 1
+            raw_dataset.total_size_bytes = len(content_bytes)
+            db.commit()
+
+            logger.info(f"Created raw dataset '{dataset_name}' (id={raw_dataset.id}) with {len(documents)} documents from {dataset_id}")
+
+            return {
+                "success": True,
+                "raw_dataset_id": raw_dataset.id,
+                "name": dataset_name,
+                "document_count": len(documents),
+                "size_bytes": len(content_bytes),
+                "message": f"Imported {len(documents)} documents as raw dataset. Go to Data Management to preprocess it."
+            }
+
+    except HTTPException:
+        raise
     except ImportError:
         raise HTTPException(
             status_code=500,
             detail="'datasets' library not installed. Run: pip install datasets"
         )
     except Exception as e:
-        logger.error(f"Failed to import dataset {dataset_id}: {e}", exc_info=True)
+        logger.error(f"Failed to import dataset {dataset_id} as raw: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 

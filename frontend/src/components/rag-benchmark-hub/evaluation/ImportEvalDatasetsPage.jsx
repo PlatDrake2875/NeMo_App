@@ -53,7 +53,7 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
         setHfDatasets(hfData);
         const initialStates = {};
         hfData.forEach(ds => {
-          initialStates[ds.id] = { rowCount: 500, importing: false, completed: false, error: null, result: null };
+          initialStates[ds.id] = { rowCount: 500, customName: "", importing: false, completed: false, error: null, result: null };
         });
         setHfImportStates(initialStates);
       }
@@ -83,6 +83,14 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
     }));
   };
 
+  const handleHfNameChange = (datasetId, value) => {
+    setHfImportStates(prev => ({
+      ...prev,
+      [datasetId]: { ...prev[datasetId], customName: value }
+    }));
+  };
+
+  // HuggingFace import as raw dataset
   const handleHfImport = async (datasetId) => {
     const state = hfImportStates[datasetId];
     setHfImportStates(prev => ({
@@ -91,10 +99,12 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
     }));
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/evaluation/import/huggingface?dataset_id=${encodeURIComponent(datasetId)}&limit=${state.rowCount}`,
-        { method: "POST" }
-      );
+      const customName = state.customName?.trim() || "";
+      let url = `${API_BASE_URL}/api/evaluation/import/huggingface-as-raw?dataset_id=${encodeURIComponent(datasetId)}&limit=${state.rowCount}`;
+      if (customName) {
+        url += `&custom_name=${encodeURIComponent(customName)}`;
+      }
+      const response = await fetch(url, { method: "POST" });
 
       if (!response.ok) {
         const errData = await response.json();
@@ -106,8 +116,6 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
         ...prev,
         [datasetId]: { ...prev[datasetId], importing: false, completed: true, result }
       }));
-
-      if (onImportComplete) onImportComplete(result);
     } catch (err) {
       setHfImportStates(prev => ({
         ...prev,
@@ -225,20 +233,36 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Import Evaluation Datasets</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Import Raw Datasets</h2>
         <p className="text-muted-foreground">
-          Import Q&A datasets from HuggingFace or PDF documents as raw datasets
+          Import documents from HuggingFace or PDFs as raw datasets for preprocessing and Q&A generation
         </p>
       </div>
+
+      {/* Workflow explanation */}
+      <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+        <CardContent className="pt-4">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="font-medium">Workflow:</span>
+            <span className="text-muted-foreground">Import Raw</span>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Preprocess</span>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Generate Q&A</span>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Run Evaluation</span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* HuggingFace Datasets Section */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <Database className="h-5 w-5" />
-          <h3 className="text-lg font-semibold">HuggingFace Q&A Datasets</h3>
+          <h3 className="text-lg font-semibold">HuggingFace Datasets</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Import ready-to-use Q&A pairs directly for evaluation.
+          Import documents from HuggingFace as raw datasets for preprocessing and Q&A generation.
         </p>
 
         <div className="grid gap-4">
@@ -260,16 +284,35 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
                     </a>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex items-end gap-4">
-                    <div className="flex-1 max-w-[180px]">
-                      <Label className="text-xs">Q&A pairs to import</Label>
-                      <Input type="number" min={1} max={10000} value={state.rowCount || 500} onChange={(e) => handleHfRowCountChange(dataset.id, e.target.value)} disabled={state.importing} className="mt-1 h-9" />
+                <CardContent className="space-y-3">
+                  <div className="flex items-end gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <Label className="text-xs">Dataset Name (optional)</Label>
+                      <Input
+                        type="text"
+                        placeholder={dataset.name}
+                        value={state.customName || ""}
+                        onChange={(e) => handleHfNameChange(dataset.id, e.target.value)}
+                        disabled={state.importing || state.completed}
+                        className="mt-1 h-9"
+                      />
+                    </div>
+                    <div className="w-[120px]">
+                      <Label className="text-xs">Max items</Label>
+                      <Input type="number" min={1} max={10000} value={state.rowCount || 500} onChange={(e) => handleHfRowCountChange(dataset.id, e.target.value)} disabled={state.importing || state.completed} className="mt-1 h-9" />
                     </div>
                     <Button onClick={() => handleHfImport(dataset.id)} disabled={state.importing || state.completed} variant={state.completed ? "outline" : "default"} size="sm">
-                      {state.importing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importing...</> : state.completed ? <><CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />Done ({state.result?.pair_count})</> : <><Download className="h-4 w-4 mr-2" />Import</>}
+                      {state.importing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importing...</> : state.completed ? <><CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />Imported</> : <><Download className="h-4 w-4 mr-2" />Import as Raw</>}
                     </Button>
                   </div>
+                  {state.completed && state.result && (
+                    <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-md">
+                      <p className="text-sm text-green-700 dark:text-green-300">
+                        <CheckCircle2 className="h-4 w-4 inline mr-1" />
+                        Raw dataset created with {state.result.document_count} documents! Go to <strong>Data Management</strong> to preprocess it.
+                      </p>
+                    </div>
+                  )}
                   {state.error && <div className="mt-2 text-destructive text-sm flex items-center gap-1"><AlertCircle className="h-3 w-3" />{state.error}</div>}
                 </CardContent>
               </Card>
@@ -287,25 +330,8 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
           <h3 className="text-lg font-semibold">PDF Documents (Romanian)</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Import PDFs as raw datasets. After importing, go to <strong>Data Management</strong> to preprocess them,
-          then generate Q&A pairs from the processed content.
+          Import bundled PDF documents as raw datasets.
         </p>
-
-        {/* Workflow explanation */}
-        <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-medium">Workflow:</span>
-              <span className="text-muted-foreground">Import PDF</span>
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Preprocess</span>
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Generate Q&A</span>
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Run Evaluation</span>
-            </div>
-          </CardContent>
-        </Card>
 
         <div className="grid gap-4">
           {pdfDatasets.map((dataset) => {
