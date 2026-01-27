@@ -67,6 +67,20 @@ class EvaluationTaskService:
         """Get a new database session."""
         return self._session_maker()
 
+    async def _get_current_llm_model(self) -> Optional[str]:
+        """Fetch the currently loaded model from vLLM."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{VLLM_BASE_URL}/v1/models")
+                if response.status_code == 200:
+                    data = response.json()
+                    models = data.get("data", [])
+                    if models:
+                        return models[0].get("id")
+        except Exception as e:
+            logger.warning(f"Could not fetch current vLLM model: {e}")
+        return VLLM_MODEL  # Fall back to config default
+
     async def create_task(
         self,
         eval_dataset_id: Optional[str],
@@ -81,6 +95,7 @@ class EvaluationTaskService:
         preprocessed_dataset_id: Optional[int] = None,
         preset: Optional[str] = None,
         chunking: Optional[dict] = None,
+        llm_model: Optional[str] = None,  # LLM model for generation
     ) -> str:
         """
         Create a new evaluation task and start it in the background.
@@ -112,6 +127,10 @@ class EvaluationTaskService:
         # Determine display name for collection
         collection_display = collection_name if collection_name else f"preprocessed_{preprocessed_dataset_id}"
 
+        # Fetch current LLM model if not provided
+        if not llm_model:
+            llm_model = await self._get_current_llm_model()
+
         # Create task record in database
         config = {
             "experiment_name": experiment_name,
@@ -122,6 +141,7 @@ class EvaluationTaskService:
             "top_k": top_k,
             "temperature": temperature,
             "embedder": embedder,
+            "llm_model": llm_model,  # Track which LLM model is used
             # New flow parameters
             "preprocessed_dataset_id": preprocessed_dataset_id,
             "preset": preset,
@@ -530,10 +550,13 @@ class EvaluationTaskService:
         use_rag: bool,
     ) -> tuple[str, Optional[List[RetrievedChunk]]]:
         """Generate an answer using vLLM."""
+        # Get current model from vLLM API (handles dynamic model switching)
+        current_model = await self._get_current_llm_model() or VLLM_MODEL
+
         messages = [{"role": "user", "content": prompt_content}]
 
         payload = {
-            "model": VLLM_MODEL,
+            "model": current_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": 1024,

@@ -6,6 +6,8 @@ import { AgentSelector } from "./components/AgentSelector";
 import { ChatInterface } from "./components/ChatInterface";
 import { RAGBenchmarkHub } from "./components/RAGBenchmarkHub";
 import { GuardrailsEditor } from "./components/guardrails";
+import { ModelSwitchBanner } from "./components/ModelSwitchBanner";
+import { ModelSelector } from "./components/ModelSelector";
 
 // Import components
 import { Sidebar } from "./components/Sidebar";
@@ -13,9 +15,11 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { useChatSessions } from "./hooks/useChatSessions";
 // Import custom hooks
 import { useTheme } from "./hooks/useTheme";
+import { useModelManager } from "./hooks/useModelManager";
 // Import utilities
 import { formatSessionName } from "./utils/session";
 import { API_BASE_URL } from "./lib/api-config";
+import { cn } from "./lib/utils";
 
 function App() {
 	const { isDarkMode, toggleTheme } = useTheme();
@@ -42,10 +46,22 @@ function App() {
 		handleImportConversation,
 	} = useChatSessions(API_BASE_URL);
 
-	const [availableModels, setAvailableModels] = useState([]);
-	const [selectedModel, setSelectedModel] = useState("");
-	const [modelsLoading, setModelsLoading] = useState(true);
-	const [modelsError, setModelsError] = useState(null);
+	// Model management with switch support
+	const {
+		availableModels,
+		cachedModels,
+		selectedModel,
+		modelsLoading,
+		modelsError,
+		switchStatus,
+		isChatDisabled: isModelSwitching,
+		setSelectedModel,
+		fetchModels,
+		fetchCachedModels,
+		switchModel,
+		cancelSwitch,
+	} = useModelManager();
+
 	const [isUploadingPdf, setIsUploadingPdf] = useState(false);
 	const [pdfUploadStatus, setPdfUploadStatus] = useState(null);
 
@@ -78,62 +94,20 @@ function App() {
 	const [isRagEnabled, setIsRagEnabled] = useState(true);
 	const [isColbertEnabled, setIsColbertEnabled] = useState(true);
 
-	const fetchModels = useCallback(async () => {
-		setModelsLoading(true);
-		setModelsError(null);
-		try {
-			const response = await fetch(`${API_BASE_URL}/api/models`);
-			if (!response.ok) {
-				let errorDetail = `HTTP error! status: ${response.status}`;
-				try {
-					const errorData = await response.json();
-					errorDetail = errorData.detail || errorDetail;
-				} catch (_e) {
-					/* Ignore */
-				}
-				throw new Error(errorDetail);
-			}
-			const modelsData = await response.json();
-			const modelNames = modelsData.map((m) => m.name).sort();
-			setAvailableModels(modelNames);
+	// Handle model selection change
+	const handleModelChange = useCallback(
+		(event) => {
+			const newModel = event.target.value;
+			setSelectedModel(newModel);
+		},
+		[setSelectedModel]
+	);
 
-			const storedModel = localStorage.getItem("selectedModel");
-			if (storedModel && modelNames.includes(storedModel)) {
-				setSelectedModel(storedModel);
-			} else if (
-				modelNames.length > 0 &&
-				(!selectedModel || !modelNames.includes(selectedModel))
-			) {
-				setSelectedModel(modelNames[0]);
-				localStorage.setItem("selectedModel", modelNames[0]);
-			} else if (modelNames.length === 0) {
-				setSelectedModel("");
-				localStorage.removeItem("selectedModel");
-			}
-		} catch (error) {
-			console.error("Error fetching models:", error);
-			setModelsError(`Failed to load models: ${error.message}`);
-			setAvailableModels([]);
-			setSelectedModel("");
-			localStorage.removeItem("selectedModel");
-		} finally {
-			setModelsLoading(false);
-		}
-	}, [selectedModel]);
-
-	useEffect(() => {
+	// Refresh models after switch completes
+	const handleSwitchComplete = useCallback(() => {
 		fetchModels();
-	}, [fetchModels]);
-
-	const handleModelChange = (event) => {
-		const newModel = event.target.value;
-		setSelectedModel(newModel);
-		if (newModel) {
-			localStorage.setItem("selectedModel", newModel);
-		} else {
-			localStorage.removeItem("selectedModel");
-		}
-	};
+		fetchCachedModels();
+	}, [fetchModels, fetchCachedModels]);
 
 	const handleChatSubmitWithModel = useCallback(
 		async (query) => {
@@ -335,7 +309,12 @@ function App() {
 
 	return (
 		<TooltipProvider>
-			<div className="flex h-screen overflow-hidden bg-background">
+			{/* Global banner for model switching */}
+			<ModelSwitchBanner switchStatus={switchStatus} onCancel={cancelSwitch} />
+			<div className={cn(
+				"flex h-screen overflow-hidden bg-background",
+				switchStatus && ["pending", "checking", "downloading", "stopping", "starting", "loading"].includes(switchStatus.status) && "pt-12"
+			)}>
 				<Sidebar
 					sessions={sessions}
 					activeSessionId={activeSessionId}
@@ -365,6 +344,23 @@ function App() {
 				/>
 				{/* Main content area */}
 				<div className="flex-1 flex flex-col overflow-hidden">
+					{/* Global Model Selector Bar - visible on all views */}
+					<div className="flex items-center justify-between px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+						<span className="text-sm font-medium text-muted-foreground">vLLM Model:</span>
+						<ModelSelector
+							availableModels={availableModels}
+							cachedModels={cachedModels}
+							selectedModel={selectedModel}
+							onModelSelect={setSelectedModel}
+							modelsLoading={modelsLoading}
+							modelsError={modelsError}
+							onRefreshModels={fetchModels}
+							switchStatus={switchStatus}
+							onSwitchModel={switchModel}
+							onSwitchComplete={handleSwitchComplete}
+							disabled={isModelSwitching}
+						/>
+					</div>
 					{currentView === "chat" ? (
 						<ChatInterface
 							key={`${activeSessionId || "no-session"}-${activeChatHistory.length}`}
@@ -378,11 +374,17 @@ function App() {
 							isSubmitting={isChatSubmitting}
 							onStopGeneration={stopGeneration}
 							availableModels={availableModels}
+							cachedModels={cachedModels}
 							selectedModel={selectedModel}
 							onModelChange={handleModelChange}
 							modelsLoading={modelsLoading}
 							modelsError={modelsError}
 							isInitialized={isInitialized}
+							// Model switching props
+							switchStatus={switchStatus}
+							onSwitchModel={switchModel}
+							onSwitchComplete={handleSwitchComplete}
+							isModelSwitching={isModelSwitching}
 							// Pass agent selector info
 							showAgentSelector={showAgentSelector}
 							sessionAgents={sessionAgents}

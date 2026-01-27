@@ -43,6 +43,28 @@ class ChatService:
         self.rag_enabled = RAG_ENABLED
         self.use_guardrails = USE_GUARDRAILS
         self.nemo_server_url = NEMO_GUARDRAILS_SERVER_URL
+        self._cached_vllm_model: Optional[str] = None
+
+    async def _get_current_vllm_model(self) -> str:
+        """Fetch the currently loaded model from vLLM API.
+
+        Handles dynamic model switching - the env var doesn't update
+        when models are switched, so we query the API directly.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.vllm_base_url}/v1/models")
+                if response.status_code == 200:
+                    data = response.json()
+                    models = data.get("data", [])
+                    if models:
+                        self._cached_vllm_model = models[0].get("id")
+                        return self._cached_vllm_model
+        except Exception as e:
+            logger.warning(f"Could not fetch current vLLM model: {e}")
+
+        # Fallback to cached value or env var
+        return self._cached_vllm_model or self.default_model
 
     async def process_chat_request(
         self,
@@ -73,7 +95,8 @@ class ChatService:
         """
         history = history or []
         use_rag = use_rag if use_rag is not None else self.rag_enabled
-        effective_model = model_name or self.default_model
+        # Fetch current model from vLLM API to handle dynamic model switching
+        effective_model = model_name or await self._get_current_vllm_model()
 
         messages = await self._build_messages(
             history, query, use_rag, collection_name, use_colbert

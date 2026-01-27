@@ -1,4 +1,4 @@
-import { useId, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import {
@@ -14,9 +14,7 @@ import {
   Trash2,
   Download,
   MoreVertical,
-  AlertCircle,
   Sparkles,
-  ChevronDown,
   Plus,
   Database,
   FileJson,
@@ -24,8 +22,8 @@ import {
   Upload,
   Settings,
 } from "lucide-react";
-import { cn } from "../lib/utils";
 import { ModelDownloadDialog } from "./ModelDownloadDialog";
+import { ModelSelector } from "./ModelSelector";
 import { ImportConversationDialog } from "./ImportConversationDialog";
 import { AdvancedSettingsDropdown } from "./AdvancedSettingsDropdown";
 import { exportAsJSON, exportAsPDF } from "../utils/exportUtils";
@@ -39,11 +37,16 @@ export function Header({
   onImportConversation,
   disabled,
   availableModels,
+  cachedModels = [],
   selectedModel,
   onModelChange,
   modelsLoading,
   modelsError,
   onRefreshModels,
+  // Model switching props
+  switchStatus,
+  onSwitchModel,
+  onSwitchComplete,
   // Advanced Settings props
   selectedDataset,
   onDatasetChange,
@@ -52,7 +55,6 @@ export function Header({
   isColbertEnabled = true,
   onColbertEnabledChange,
 }) {
-  const modelSelectId = useId();
   const title = activeSessionName || "Chat";
   const isHistoryEmpty =
     !Array.isArray(chatHistory) || chatHistory.length === 0;
@@ -128,51 +130,19 @@ export function Header({
         <div className="flex items-center gap-2">
           {/* Model Selector with Download Button */}
           <div className="flex items-center gap-1">
-            <div className="relative min-w-[180px]">
-              <label htmlFor={modelSelectId} className="sr-only">
-                Select Model
-              </label>
-              <div className="relative">
-                <select
-                  id={modelSelectId}
-                  value={selectedModel}
-                  onChange={onModelChange}
-                  disabled={
-                    modelsLoading ||
-                    availableModels.length === 0 ||
-                    !!modelsError ||
-                    disabled
-                  }
-                  className={cn(
-                    "w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-8 text-sm",
-                    "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                    "disabled:cursor-not-allowed disabled:opacity-50",
-                    "transition-colors"
-                  )}
-                  aria-label="Select AI model"
-                >
-                  {modelsLoading && <option value="">Loading models...</option>}
-                  {modelsError && <option value="">Error loading models</option>}
-                  {!modelsLoading && !modelsError && availableModels.length === 0 && (
-                    <option value="">No models found</option>
-                  )}
-                  {!modelsLoading &&
-                    !modelsError &&
-                    availableModels.map((modelName) => (
-                      <option key={modelName} value={modelName}>
-                        {modelName.split(":")[0]}
-                      </option>
-                    ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              </div>
-              {modelsError && (
-                <div className="absolute right-0 top-full mt-1 flex items-center gap-1 text-xs text-destructive">
-                  <AlertCircle className="h-3 w-3" />
-                  <span title={modelsError}>Model error</span>
-                </div>
-              )}
-            </div>
+            <ModelSelector
+              availableModels={availableModels}
+              cachedModels={cachedModels}
+              selectedModel={selectedModel}
+              onModelSelect={(model) => onModelChange?.({ target: { value: model } })}
+              modelsLoading={modelsLoading}
+              modelsError={modelsError}
+              onRefreshModels={onRefreshModels}
+              switchStatus={switchStatus}
+              onSwitchModel={onSwitchModel}
+              onSwitchComplete={onSwitchComplete}
+              disabled={disabled}
+            />
             <Button
               variant="outline"
               size="icon"

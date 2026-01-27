@@ -75,6 +75,21 @@ Respond with a JSON object in this exact format:
 class QAGeneratorService:
     """Generate Q&A pairs from document chunks using OpenRouter or vLLM."""
 
+    @staticmethod
+    async def _get_current_vllm_model() -> Optional[str]:
+        """Fetch the currently loaded model from vLLM."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{VLLM_BASE_URL}/v1/models")
+                if response.status_code == 200:
+                    data = response.json()
+                    models = data.get("data", [])
+                    if models:
+                        return models[0].get("id")
+        except Exception as e:
+            logger.warning(f"Could not fetch current vLLM model: {e}")
+        return None
+
     def __init__(
         self,
         model: Optional[str] = None,
@@ -582,6 +597,13 @@ class QAGeneratorService:
         pairs_json = json.dumps(all_pairs, sort_keys=True)
         content_hash = hashlib.sha256(pairs_json.encode()).hexdigest()
 
+        # Get the actual model that was used (fetch from vLLM if using local)
+        actual_model = self.model
+        if self.use_vllm:
+            current_model = await self._get_current_vllm_model()
+            if current_model:
+                actual_model = current_model
+
         dataset = {
             "id": dataset_id,
             "name": name,
@@ -591,7 +613,8 @@ class QAGeneratorService:
             "source_collection": collection_name,  # Track which collection this was generated from
             "content_hash": content_hash,
             "generation_config": {
-                "model": self.model,
+                "model": actual_model,
+                "use_vllm": self.use_vllm,
                 "pairs_per_chunk": pairs_per_chunk,
                 "max_chunks": max_chunks,
                 "chunks_processed": len(chunks),

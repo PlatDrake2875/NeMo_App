@@ -12,6 +12,8 @@ services:
       - ./backend:/app
       - /app/.venv  # Prevent overwriting virtual env
       - ${DATA_DIR:-./data}/vllm_cache:/root/.cache/huggingface  # Share HF cache with vLLM for model downloads
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for model switching
+      - .:/host_project:ro  # Mount project root for docker compose commands
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -135,7 +137,7 @@ services:
       - --trust-remote-code
       - --max-model-len=8192
       - --max-num-seqs=32
-      - --gpu-memory-utilization=0.9
+      - --gpu-memory-utilization=0.7
       - --download-dir=/root/.cache/huggingface  # Use shared cache
     deploy:
       resources:

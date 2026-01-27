@@ -36,3 +36,16 @@ class EvaluationTaskStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class ModelSwitchStatus(str, Enum):
+    """Status for model switch operations."""
+    PENDING = "pending"
+    CHECKING = "checking"       # Checking if model is cached
+    DOWNLOADING = "downloading"  # Downloading model (if not cached)
+    STOPPING = "stopping"        # Stopping current vLLM container
+    STARTING = "starting"        # Starting vLLM with new model
+    LOADING = "loading"          # Model loading into GPU memory
+    READY = "ready"              # Model ready for inference
+    FAILED = "failed"
+    CANCELLED = "cancelled"

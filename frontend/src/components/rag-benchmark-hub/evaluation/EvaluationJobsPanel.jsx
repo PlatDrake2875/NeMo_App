@@ -150,6 +150,9 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
               <p className="text-xs text-muted-foreground truncate">
                 {task.collection_display_name?.split("_").slice(-2).join("_") || "N/A"}
                 {task.pair_count && <span className="ml-2">• {task.pair_count} pairs</span>}
+                {task.config?.llm_model && (
+                  <span className="ml-2 font-mono">• {task.config.llm_model.split("/").pop()}</span>
+                )}
               </p>
             </div>
           </div>

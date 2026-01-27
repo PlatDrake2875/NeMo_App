@@ -51,6 +51,32 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Cache for current vLLM model
+_current_vllm_model: Optional[str] = None
+
+
+async def _get_current_vllm_model() -> str:
+    """Fetch the currently loaded model from vLLM API.
+
+    Handles dynamic model switching - the env var doesn't update
+    when models are switched, so we query the API directly.
+    """
+    global _current_vllm_model
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{VLLM_BASE_URL}/v1/models")
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get("data", [])
+                if models:
+                    _current_vllm_model = models[0].get("id")
+                    return _current_vllm_model
+    except Exception as e:
+        logger.warning(f"Could not fetch current vLLM model: {e}")
+
+    return _current_vllm_model or VLLM_MODEL
+
+
 # Directory for storing evaluation datasets
 EVAL_DATASETS_DIR = Path("data/evaluation_datasets")
 EVAL_DATASETS_DIR.mkdir(parents=True, exist_ok=True)
@@ -472,10 +498,13 @@ async def _generate_answer(
     use_rag: bool,
 ) -> tuple[str, Optional[list[RetrievedChunk]]]:
     """Generate an answer using vLLM."""
+    # Get current model from vLLM API (handles dynamic model switching)
+    current_model = await _get_current_vllm_model()
+
     messages = [{"role": "user", "content": prompt_content}]
 
     payload = {
-        "model": VLLM_MODEL,
+        "model": current_model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": 1024,

@@ -28,7 +28,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 
 from config import POSTGRES_CONNECTION_STRING
-from enums import SourceType, FileType, ProcessingStatus, EvaluationTaskStatus
+from enums import SourceType, FileType, ProcessingStatus, EvaluationTaskStatus, ModelSwitchStatus
 
 Base = declarative_base()
 
@@ -349,6 +349,52 @@ class Dataset(Base):
 
     def __repr__(self):
         return f"<Dataset(id={self.id}, name='{self.name}', collection='{self.collection_name}')>"
+
+
+# --- Model Switch Task ---
+class ModelSwitchTask(Base):
+    """Tracks model switching operations with progress."""
+    __tablename__ = "model_switch_tasks"
+
+    id = Column(String(36), primary_key=True)  # UUID
+
+    # Model information
+    from_model = Column(String(200), nullable=True)  # Current model (null if unknown)
+    to_model = Column(String(200), nullable=False)   # Target model to load
+
+    # Status tracking
+    status = Column(String(20), nullable=False, default=ModelSwitchStatus.PENDING.value)
+    progress = Column(Integer, nullable=False, default=0)  # 0-100
+    current_step = Column(String(200), nullable=True)
+
+    # Timing
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Error handling
+    error_message = Column(Text, nullable=True)
+
+    # Estimated time in seconds
+    estimated_time = Column(Integer, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "from_model": self.from_model,
+            "to_model": self.to_model,
+            "status": self.status,
+            "progress": self.progress,
+            "current_step": self.current_step,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "error_message": self.error_message,
+            "estimated_time": self.estimated_time,
+        }
+
+    def __repr__(self):
+        return f"<ModelSwitchTask(id={self.id}, to={self.to_model}, status={self.status})>"
 
 
 # Database connection and session management

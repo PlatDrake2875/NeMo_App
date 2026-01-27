@@ -451,9 +451,19 @@ export function GenerateQAPage() {
                         <Badge variant="outline" className="text-xs">
                           {dataset.pair_count} pairs
                         </Badge>
+                        {dataset.generation_config?.model && (
+                          <Badge variant="secondary" className="text-xs font-mono">
+                            {dataset.generation_config.model.split("/").pop()}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         Created: {new Date(dataset.created_at).toLocaleString()}
+                        {dataset.generation_config?.use_vllm !== undefined && (
+                          <span className="ml-2">
+                            • {dataset.generation_config.use_vllm ? "vLLM" : "OpenRouter"}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <Button

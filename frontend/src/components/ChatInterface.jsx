@@ -14,11 +14,17 @@ export function ChatInterface({
   isSubmitting,
   onStopGeneration,
   availableModels,
+  cachedModels,
   selectedModel,
   onModelChange,
   modelsLoading,
   modelsError,
   isInitialized,
+  // Model switching props
+  switchStatus,
+  onSwitchModel,
+  onSwitchComplete,
+  isModelSwitching,
   sessionAgents,
   onRefreshModels,
   // Message action handlers
@@ -41,8 +47,8 @@ export function ChatInterface({
     !!modelsError ||
     isSubmitting;
 
-  // Determine if form specifically should be disabled
-  const isFormDisabled = isDisabled || !selectedModel;
+  // Determine if form specifically should be disabled (also disabled during model switching)
+  const isFormDisabled = isDisabled || !selectedModel || isModelSwitching;
 
   // Check if agent is selected for this session
   const hasAgent = sessionAgents[activeSessionId] !== undefined;
@@ -56,13 +62,18 @@ export function ChatInterface({
         chatHistory={chatHistory}
         clearChatHistory={onClearHistory}
         onImportConversation={onImportConversation}
-        disabled={isDisabled}
+        disabled={isDisabled || isModelSwitching}
         availableModels={availableModels}
+        cachedModels={cachedModels}
         selectedModel={selectedModel}
         onModelChange={onModelChange}
         modelsLoading={modelsLoading}
         modelsError={modelsError}
         onRefreshModels={onRefreshModels}
+        // Model switching props
+        switchStatus={switchStatus}
+        onSwitchModel={onSwitchModel}
+        onSwitchComplete={onSwitchComplete}
         // Advanced Settings props
         selectedDataset={selectedDataset}
         onDatasetChange={onDatasetChange}

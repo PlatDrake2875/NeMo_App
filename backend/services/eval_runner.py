@@ -24,6 +24,35 @@ from rag_components import get_rag_context_prefix
 
 logger = logging.getLogger(__name__)
 
+# Cache for the current vLLM model name
+_current_vllm_model: Optional[str] = None
+
+
+async def get_current_vllm_model() -> str:
+    """Fetch the currently loaded model from vLLM API.
+
+    This is needed because when models are switched dynamically,
+    the VLLM_MODEL env var doesn't update. The vLLM API requires
+    the model name in requests to match the served model name.
+    """
+    global _current_vllm_model
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{VLLM_BASE_URL}/v1/models")
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get("data", [])
+                if models:
+                    _current_vllm_model = models[0].get("id")
+                    logger.debug(f"Current vLLM model: {_current_vllm_model}")
+                    return _current_vllm_model
+    except Exception as e:
+        logger.warning(f"Could not fetch current vLLM model: {e}")
+
+    # Fallback to cached value or env var
+    return _current_vllm_model or VLLM_MODEL
+
 
 @dataclass
 class EvalConfig:
@@ -37,6 +66,7 @@ class EvalConfig:
     collection_name: str = "rag_documents"
     use_rag: bool = True
     seed: Optional[int] = None  # Random seed for reproducibility
+    llm_model: Optional[str] = None  # vLLM model used for generation
 
     def config_hash(self, dataset_content_hash: Optional[str] = None) -> str:
         """
@@ -55,6 +85,7 @@ class EvalConfig:
             "collection_name": self.collection_name,
             "use_rag": self.use_rag,
             "seed": self.seed,
+            "llm_model": self.llm_model,
         }
         # Include dataset content hash if available for stricter matching
         if dataset_content_hash:
@@ -73,6 +104,7 @@ class EvalConfig:
             "collection_name": self.collection_name,
             "use_rag": self.use_rag,
             "seed": self.seed,
+            "llm_model": self.llm_model,
             "config_hash": self.config_hash(),
         }
 
@@ -318,10 +350,13 @@ class EvalRunner:
         use_rag: bool,
     ) -> tuple[str, list[dict[str, Any]]]:
         """Generate an answer using vLLM."""
+        # Get current model from vLLM API (handles dynamic model switching)
+        current_model = await get_current_vllm_model()
+
         messages = [{"role": "user", "content": prompt_content}]
 
         payload = {
-            "model": VLLM_MODEL,
+            "model": current_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": 1024,

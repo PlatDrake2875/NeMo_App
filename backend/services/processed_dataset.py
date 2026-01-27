@@ -307,8 +307,8 @@ class ProcessedDatasetService:
         method_counts = {}
         for ds in datasets:
             config = ds.preprocessing_config or {}
-            chunking = config.get("chunking", {})
-            method = chunking.get("method", "unknown")
+            chunking = config.get("chunking") or {}
+            method = chunking.get("method", "unknown") if chunking else "unknown"
             method_counts[method] = method_counts.get(method, 0) + 1
         return method_counts
 
