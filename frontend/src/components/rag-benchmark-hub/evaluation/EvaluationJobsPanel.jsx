@@ -123,9 +123,11 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
                 <span className="font-medium text-sm truncate">
                   {task.eval_dataset_name || "Quick Test"}
                 </span>
-                <Badge variant={statusConfig.badgeVariant} className="text-xs">
-                  {statusConfig.label}
-                </Badge>
+                {task.status !== "completed" && (
+                  <Badge variant={statusConfig.badgeVariant} className="text-xs">
+                    {statusConfig.label}
+                  </Badge>
+                )}
                 {task.pair_count && (
                   <Badge variant="outline" className="text-xs">
                     {task.pair_count} pairs
@@ -135,6 +137,36 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
               <p className="text-xs text-muted-foreground mt-1 truncate">
                 Collection: {task.collection_display_name?.split("_").slice(-2).join("_") || "N/A"}
               </p>
+              {/* Hyperparameters */}
+              {task.config && (
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {task.config.use_rag !== undefined && (
+                    <Badge variant={task.config.use_rag ? "default" : "secondary"} className="text-xs py-0">
+                      RAG {task.config.use_rag ? "ON" : "OFF"}
+                    </Badge>
+                  )}
+                  {task.config.use_colbert !== undefined && (
+                    <Badge variant={task.config.use_colbert ? "default" : "outline"} className="text-xs py-0">
+                      ColBERT {task.config.use_colbert ? "ON" : "OFF"}
+                    </Badge>
+                  )}
+                  {task.config.top_k && (
+                    <Badge variant="outline" className="text-xs py-0">
+                      K={task.config.top_k}
+                    </Badge>
+                  )}
+                  {task.config.temperature !== undefined && (
+                    <Badge variant="outline" className="text-xs py-0">
+                      T={task.config.temperature}
+                    </Badge>
+                  )}
+                  {task.config.embedder && (
+                    <Badge variant="outline" className="text-xs py-0 font-mono">
+                      {task.config.embedder.split("/").pop()}
+                    </Badge>
+                  )}
+                </div>
+              )}
               {task.status === "running" && task.current_step && (
                 <p className="text-xs text-muted-foreground mt-1 truncate">
                   {task.current_step}
@@ -299,6 +331,23 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
     onNewEvaluation?.();
   };
 
+  // Create a map of run_id -> run for quick lookup
+  const runsById = new Map(runs.map(run => [run.id, run]));
+
+  // Merge metrics and config from runs into tasks that have result_run_id
+  const tasksWithMetrics = tasks.map(task => {
+    if (task.result_run_id && runsById.has(task.result_run_id)) {
+      const run = runsById.get(task.result_run_id);
+      return {
+        ...task,
+        metrics: task.metrics || run.metrics,
+        config: task.config || run.config,
+        pair_count: task.pair_count || run.pair_count,
+      };
+    }
+    return task;
+  });
+
   // Convert runs to task-like format for unified display
   const runsAsItems = runs.map(run => ({
     id: `run-${run.id}`,
@@ -316,13 +365,13 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
   }));
 
   // Get task result_run_ids to avoid duplicates
-  const taskRunIds = new Set(tasks.filter(t => t.result_run_id).map(t => t.result_run_id));
+  const taskRunIds = new Set(tasksWithMetrics.filter(t => t.result_run_id).map(t => t.result_run_id));
 
   // Filter out runs that already have a corresponding task
   const uniqueRuns = runsAsItems.filter(r => !taskRunIds.has(r.run_id));
 
   // Combine tasks with unique runs for the "all" and "completed" views
-  const allItems = [...tasks, ...uniqueRuns].sort((a, b) =>
+  const allItems = [...tasksWithMetrics, ...uniqueRuns].sort((a, b) =>
     new Date(b.created_at) - new Date(a.created_at)
   );
 

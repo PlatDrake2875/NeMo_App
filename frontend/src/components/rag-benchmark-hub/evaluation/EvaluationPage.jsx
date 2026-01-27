@@ -181,6 +181,61 @@ export function EvaluationPage() {
             Back to Jobs
           </Button>
 
+          {/* Experiment Configuration Summary */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Experiment Configuration</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Collection</p>
+                  <p className="text-sm font-medium">{results.config?.collection || "N/A"}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">LLM Model</p>
+                  <p className="text-sm font-medium font-mono">{(results.config?.llm_model || "Unknown").split("/").pop()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Embedder</p>
+                  <p className="text-sm font-medium font-mono">{(results.config?.embedder || "N/A").split("/").pop()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">RAG Pipeline</p>
+                  <p className="text-sm font-medium">
+                    {results.config?.use_rag ? (
+                      <span className="text-green-600">Enabled</span>
+                    ) : (
+                      <span className="text-muted-foreground">Disabled</span>
+                    )}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Reranker</p>
+                  <p className="text-sm font-medium">
+                    {results.config?.use_colbert ? (
+                      <span className="text-green-600">ColBERT</span>
+                    ) : (
+                      <span className="text-muted-foreground">None</span>
+                    )}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Top-K</p>
+                  <p className="text-sm font-medium">{results.config?.top_k ?? "N/A"}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Temperature</p>
+                  <p className="text-sm font-medium">{results.config?.temperature ?? "N/A"}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Test Pairs</p>
+                  <p className="text-sm font-medium">{results.results?.length || 0}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Separator />
 
           {/* Metrics Summary */}
@@ -389,37 +444,6 @@ export function EvaluationPage() {
             </CardContent>
           </Card>
 
-          {/* Configuration Used */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Evaluation Configuration</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">
-                  Collection: {results.config?.collection || "N/A"}
-                </Badge>
-                <Badge variant={results.config?.use_rag ? "default" : "secondary"}>
-                  RAG: {results.config?.use_rag ? "ON" : "OFF"}
-                </Badge>
-                <Badge variant="outline">
-                  LLM: {(results.config?.llm_model || "Unknown").split("/").pop()}
-                </Badge>
-                <Badge variant="outline">
-                  Embedder: {(results.config?.embedder || "N/A").split("/").pop()}
-                </Badge>
-                <Badge variant={results.config?.use_colbert ? "default" : "secondary"}>
-                  Reranker: {results.config?.use_colbert ? "ColBERT" : "None"}
-                </Badge>
-                <Badge variant="outline">
-                  Top-K: {results.config?.top_k ?? "N/A"}
-                </Badge>
-                <Badge variant="outline">
-                  Temperature: {results.config?.temperature ?? "N/A"}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>
