@@ -264,13 +264,15 @@ class EvalResultScores(BaseModel):
     # Original metric (kept for backwards compatibility)
     jaccard: Optional[float] = None  # Word overlap similarity
 
-    # RAGAS-style metrics
-    relevancy: Optional[float] = None  # Embedding similarity: query <-> answer
-    faithfulness: Optional[float] = None  # Claims supported by context
-    answer_correctness: Optional[float] = None  # F1 factual + semantic similarity
+    # Active retrieval-quality metrics
     context_precision: Optional[float] = None  # Retrieval ranking quality
+    precision_at_k: Optional[float] = None  # Relevant chunks in top-K / K
+    recall_at_k: Optional[float] = None  # Relevant in top-K / relevant in expanded set
 
-    # Detailed breakdowns (optional, for expanded view)
+    # Deprecated fields (kept Optional for backward compat with old JSON runs)
+    relevancy: Optional[float] = None
+    faithfulness: Optional[float] = None
+    answer_correctness: Optional[float] = None
     faithfulness_detail: Optional[FaithfulnessDetail] = None
     answer_correctness_detail: Optional[AnswerCorrectnessDetail] = None
 
@@ -290,11 +292,15 @@ class EvalResult(BaseModel):
 class EvalMetrics(BaseModel):
     """Aggregate metrics across all evaluation results."""
 
-    answer_relevancy: float = 0.0
-    faithfulness: float = 0.0
     context_precision: float = 0.0
-    answer_correctness: float = 0.0
+    precision_at_k: float = 0.0
+    recall_at_k: float = 0.0
     avg_latency: float = 0.0
+
+    # Deprecated fields (kept for backward compat with old JSON runs)
+    answer_relevancy: Optional[float] = None
+    faithfulness: Optional[float] = None
+    answer_correctness: Optional[float] = None
 
 
 class EvalConfig(BaseModel):
@@ -336,6 +342,7 @@ class GenerateQARequest(BaseModel):
     max_chunks: Optional[int] = Field(50, description="Maximum chunks to process (None for all)", ge=1)
     temperature: float = Field(0.3, description="Temperature for generation", ge=0, le=1)
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
+    system_prompt: Optional[str] = Field(None, description="Custom system prompt for Q&A generation (uses default if not provided)")
 
 
 class GenerateQAResponse(BaseModel):
@@ -441,11 +448,15 @@ class MetricWithCI(BaseModel):
 class AggregateMetricsWithCI(BaseModel):
     """Aggregate metrics with confidence intervals for statistical rigor."""
 
-    answer_relevancy: MetricWithCI
-    faithfulness: MetricWithCI
     context_precision: MetricWithCI
-    answer_correctness: MetricWithCI
+    precision_at_k: MetricWithCI
+    recall_at_k: MetricWithCI
     avg_latency: MetricWithCI
+
+    # Deprecated fields (kept for backward compat)
+    answer_relevancy: Optional[MetricWithCI] = None
+    faithfulness: Optional[MetricWithCI] = None
+    answer_correctness: Optional[MetricWithCI] = None
 
 
 class ComparisonResult(BaseModel):

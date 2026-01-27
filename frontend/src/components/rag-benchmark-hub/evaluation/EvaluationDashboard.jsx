@@ -33,8 +33,8 @@ export function EvaluationDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [stats, setStats] = useState({
     totalRuns: 0,
-    avgCorrectness: 0,
-    avgFaithfulness: 0,
+    avgPrecisionAtK: 0,
+    avgRecallAtK: 0,
     recentRunsCount: 0,
   });
 
@@ -43,18 +43,18 @@ export function EvaluationDashboard() {
     if (runs.length === 0) {
       setStats({
         totalRuns: 0,
-        avgCorrectness: 0,
-        avgFaithfulness: 0,
+        avgPrecisionAtK: 0,
+        avgRecallAtK: 0,
         recentRunsCount: 0,
       });
       return;
     }
 
     const totalRuns = runs.length;
-    const avgCorrectness =
-      runs.reduce((sum, r) => sum + (r.metrics?.answer_correctness || 0), 0) / totalRuns;
-    const avgFaithfulness =
-      runs.reduce((sum, r) => sum + (r.metrics?.faithfulness || 0), 0) / totalRuns;
+    const avgPrecisionAtK =
+      runs.reduce((sum, r) => sum + (r.metrics?.precision_at_k || 0), 0) / totalRuns;
+    const avgRecallAtK =
+      runs.reduce((sum, r) => sum + (r.metrics?.recall_at_k || 0), 0) / totalRuns;
 
     // Count runs from last 7 days
     const weekAgo = new Date();
@@ -65,8 +65,8 @@ export function EvaluationDashboard() {
 
     setStats({
       totalRuns,
-      avgCorrectness: avgCorrectness * 100,
-      avgFaithfulness: avgFaithfulness * 100,
+      avgPrecisionAtK: avgPrecisionAtK * 100,
+      avgRecallAtK: avgRecallAtK * 100,
       recentRunsCount,
     });
   }, [runs]);
@@ -101,16 +101,16 @@ export function EvaluationDashboard() {
           subtitle="All-time runs"
         />
         <StatCard
-          title="Avg Correctness"
-          value={`${stats.avgCorrectness.toFixed(1)}%`}
+          title="Avg Precision@K"
+          value={`${stats.avgPrecisionAtK.toFixed(1)}%`}
           icon={TrendingUp}
-          valueClassName={stats.avgCorrectness >= 70 ? "text-green-600" : stats.avgCorrectness >= 50 ? "text-yellow-600" : "text-red-600"}
+          valueClassName={stats.avgPrecisionAtK >= 70 ? "text-green-600" : stats.avgPrecisionAtK >= 50 ? "text-yellow-600" : "text-red-600"}
         />
         <StatCard
-          title="Avg Faithfulness"
-          value={`${stats.avgFaithfulness.toFixed(1)}%`}
+          title="Avg Recall@K"
+          value={`${stats.avgRecallAtK.toFixed(1)}%`}
           icon={BarChart3}
-          valueClassName={stats.avgFaithfulness >= 70 ? "text-green-600" : stats.avgFaithfulness >= 50 ? "text-yellow-600" : "text-red-600"}
+          valueClassName={stats.avgRecallAtK >= 70 ? "text-green-600" : stats.avgRecallAtK >= 50 ? "text-yellow-600" : "text-red-600"}
         />
         <StatCard
           title="Recent Runs"

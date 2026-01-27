@@ -206,18 +206,15 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
         {/* Metrics for completed runs */}
         {isCompleted && metrics && (
           <div className="mb-3 p-3 bg-muted/50 rounded-lg">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {metrics.answer_correctness != null && (
-                <MetricBar label="Correctness" value={metrics.answer_correctness} />
-              )}
-              {metrics.faithfulness != null && (
-                <MetricBar label="Faithfulness" value={metrics.faithfulness} />
-              )}
-              {metrics.answer_relevancy != null && (
-                <MetricBar label="Relevancy" value={metrics.answer_relevancy} />
-              )}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {metrics.context_precision != null && (
                 <MetricBar label="Ctx Precision" value={metrics.context_precision} />
+              )}
+              {metrics.precision_at_k != null && (
+                <MetricBar label="P@K" value={metrics.precision_at_k} />
+              )}
+              {metrics.recall_at_k != null && (
+                <MetricBar label="R@K" value={metrics.recall_at_k} />
               )}
             </div>
           </div>

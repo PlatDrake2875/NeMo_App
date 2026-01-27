@@ -18,7 +18,7 @@ export function ResultsCharts({ runs, selectedRun }) {
   const distributionData = useMemo(() => {
     if (runs.length === 0) return null;
 
-    const metrics = ["answer_correctness", "faithfulness", "context_precision", "answer_relevancy"];
+    const metrics = ["context_precision", "precision_at_k", "recall_at_k"];
     const distributions = {};
 
     metrics.forEach((metric) => {
@@ -39,23 +39,23 @@ export function ResultsCharts({ runs, selectedRun }) {
     if (!selectedRun?.results) return null;
 
     const results = selectedRun.results;
-    const lowFaithfulness = results.filter((r) => (r.scores?.faithfulness || 0) < 0.5);
-    const lowCorrectness = results.filter((r) => (r.scores?.answer_correctness || 0) < 0.5);
+    const lowPrecision = results.filter((r) => (r.scores?.precision_at_k || 0) < 0.5);
+    const lowRecall = results.filter((r) => (r.scores?.recall_at_k || 0) < 0.5);
     const highLatency = results.filter((r) => (r.latency || 0) > 5);
 
     return {
       total: results.length,
-      lowFaithfulness: lowFaithfulness.length,
-      lowCorrectness: lowCorrectness.length,
+      lowPrecision: lowPrecision.length,
+      lowRecall: lowRecall.length,
       highLatency: highLatency.length,
       worstResults: results
         .map((r, i) => ({
           index: i,
           ...r,
           avgScore:
-            ((r.scores?.answer_correctness || 0) +
-              (r.scores?.faithfulness || 0) +
-              (r.scores?.context_precision || 0)) /
+            ((r.scores?.context_precision || 0) +
+              (r.scores?.precision_at_k || 0) +
+              (r.scores?.recall_at_k || 0)) /
             3,
         }))
         .sort((a, b) => a.avgScore - b.avgScore)
@@ -122,15 +122,15 @@ export function ResultsCharts({ runs, selectedRun }) {
                 </div>
                 <div className="text-center p-4 bg-red-500/10 rounded-lg">
                   <p className="text-2xl font-bold text-red-600">
-                    {questionAnalysis.lowCorrectness}
+                    {questionAnalysis.lowPrecision}
                   </p>
-                  <p className="text-sm text-muted-foreground">Low Correctness (&lt;50%)</p>
+                  <p className="text-sm text-muted-foreground">Low P@K (&lt;50%)</p>
                 </div>
                 <div className="text-center p-4 bg-yellow-500/10 rounded-lg">
                   <p className="text-2xl font-bold text-yellow-600">
-                    {questionAnalysis.lowFaithfulness}
+                    {questionAnalysis.lowRecall}
                   </p>
-                  <p className="text-sm text-muted-foreground">Low Faithfulness (&lt;50%)</p>
+                  <p className="text-sm text-muted-foreground">Low R@K (&lt;50%)</p>
                 </div>
                 <div className="text-center p-4 bg-orange-500/10 rounded-lg">
                   <p className="text-2xl font-bold text-orange-600">
@@ -169,7 +169,7 @@ export function ResultsCharts({ runs, selectedRun }) {
                           {(result.avgScore * 100).toFixed(0)}% avg
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Correct: {((result.scores?.answer_correctness || 0) * 100).toFixed(0)}%
+                          P@K: {((result.scores?.precision_at_k || 0) * 100).toFixed(0)}%
                         </p>
                       </div>
                     </div>
@@ -193,7 +193,7 @@ export function ResultsCharts({ runs, selectedRun }) {
                 {new Date(run.created_at).toLocaleDateString()}
               </span>
               <div className="flex-1 flex gap-1">
-                {["answer_correctness", "faithfulness"].map((metric) => {
+                {["precision_at_k", "recall_at_k"].map((metric) => {
                   const value = (run.metrics?.[metric] || 0) * 100;
                   return (
                     <div
@@ -202,7 +202,7 @@ export function ResultsCharts({ runs, selectedRun }) {
                       style={{
                         width: `${value / 2}%`,
                         backgroundColor:
-                          metric === "answer_correctness"
+                          metric === "precision_at_k"
                             ? "hsl(var(--primary))"
                             : "hsl(var(--secondary))",
                         opacity: 0.7,
@@ -213,7 +213,7 @@ export function ResultsCharts({ runs, selectedRun }) {
                 })}
               </div>
               <span className="w-16 text-right font-mono text-xs">
-                {((run.metrics?.answer_correctness || 0) * 100).toFixed(0)}%
+                {((run.metrics?.precision_at_k || 0) * 100).toFixed(0)}%
               </span>
             </div>
           ))}

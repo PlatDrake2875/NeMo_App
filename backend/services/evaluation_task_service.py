@@ -22,16 +22,14 @@ from config import POSTGRES_CONNECTION_STRING, VLLM_BASE_URL, VLLM_MODEL
 from database_models import EvaluationTask
 from enums import EvaluationTaskStatus
 from schemas.evaluation import (
-    AnswerCorrectnessDetail,
-    ClaimVerificationDetail,
     EvalConfig,
     EvalMetrics,
     EvalResult,
     EvalResultScores,
-    FaithfulnessDetail,
     RetrievedChunk,
 )
-from services.evaluation_metrics import RAGEvaluationMetrics
+from services.metrics.context_precision import ContextPrecisionMetric
+from services.metrics.precision_recall_at_k import PrecisionAtK, RecallAtK
 from rag_components import get_rag_context_prefix, format_docs
 import httpx
 
@@ -351,14 +349,15 @@ class EvaluationTaskService:
             total_pairs = len(pairs)
             self._update_task_progress(task_id, current_step=f"Processing {total_pairs} pairs...")
 
-            # Initialize metrics evaluator
-            metrics_evaluator = RAGEvaluationMetrics()
+            # Initialize metrics
+            ctx_precision_metric = ContextPrecisionMetric()
+            precision_at_k_metric = PrecisionAtK()
+            recall_at_k_metric = RecallAtK()
 
             results = []
-            total_relevancy = 0.0
-            total_faithfulness = 0.0
-            total_correctness = 0.0
             total_context_precision = 0.0
+            total_precision_at_k = 0.0
+            total_recall_at_k = 0.0
             total_latency = 0.0
 
             for i, pair in enumerate(pairs):
@@ -402,44 +401,37 @@ class EvaluationTaskService:
 
                     # Calculate metrics
                     jaccard_score = self._calculate_jaccard(predicted_answer, ground_truth)
-                    correctness_result = await metrics_evaluator.answer_correctness(
-                        predicted_answer, ground_truth
+
+                    # Context Precision (also produces chunk relevance judgments)
+                    ctx_result = await ctx_precision_metric.compute(
+                        question=query,
+                        generated_answer=predicted_answer,
+                        reference_answer=ground_truth,
+                        retrieved_chunks=chunk_contents,
                     )
-                    faithfulness_result = await metrics_evaluator.faithfulness(
-                        predicted_answer, chunk_contents
+                    # Reuse relevance judgments for P@K and R@K
+                    chunk_relevances = ctx_result.details.get("chunk_relevances", [])
+
+                    pk_result = await precision_at_k_metric.compute(
+                        question=query,
+                        generated_answer=predicted_answer,
+                        reference_answer=ground_truth,
+                        retrieved_chunks=chunk_contents,
+                        chunk_relevances=chunk_relevances,
                     )
-                    relevancy = metrics_evaluator.response_relevancy(query, predicted_answer)
-                    precision_result = await metrics_evaluator.context_precision(
-                        query, chunk_contents, ground_truth
+
+                    rk_result = await recall_at_k_metric.compute(
+                        question=query,
+                        generated_answer=predicted_answer,
+                        reference_answer=ground_truth,
+                        retrieved_chunks=chunk_contents,
+                        chunk_relevances=chunk_relevances,
                     )
 
                     total_latency += generation_latency
-                    total_relevancy += relevancy
-                    total_faithfulness += faithfulness_result.score
-                    total_correctness += correctness_result.score
-                    total_context_precision += precision_result.score
-
-                    # Build result
-                    faithfulness_detail = FaithfulnessDetail(
-                        total_claims=faithfulness_result.total_claims,
-                        supported_claims=faithfulness_result.supported_claims,
-                        claims=[
-                            ClaimVerificationDetail(
-                                claim=c.claim,
-                                supported=c.supported,
-                                evidence=c.evidence,
-                            )
-                            for c in faithfulness_result.claim_details
-                        ],
-                    )
-
-                    correctness_detail = AnswerCorrectnessDetail(
-                        factual_score=correctness_result.factual_score,
-                        semantic_score=correctness_result.semantic_score,
-                        true_positives=correctness_result.true_positives,
-                        false_positives=correctness_result.false_positives,
-                        false_negatives=correctness_result.false_negatives,
-                    )
+                    total_context_precision += ctx_result.score
+                    total_precision_at_k += pk_result.score
+                    total_recall_at_k += rk_result.score
 
                     results.append(
                         EvalResult(
@@ -450,12 +442,9 @@ class EvaluationTaskService:
                             score=jaccard_score,
                             scores=EvalResultScores(
                                 jaccard=jaccard_score,
-                                relevancy=relevancy,
-                                faithfulness=faithfulness_result.score,
-                                answer_correctness=correctness_result.score,
-                                context_precision=precision_result.score,
-                                faithfulness_detail=faithfulness_detail,
-                                answer_correctness_detail=correctness_detail,
+                                context_precision=ctx_result.score,
+                                precision_at_k=pk_result.score,
+                                recall_at_k=rk_result.score,
                             ),
                             latency=generation_latency,
                         )
@@ -478,10 +467,9 @@ class EvaluationTaskService:
             # Calculate aggregate metrics
             n = len([r for r in results if r.scores is not None])
             metrics = EvalMetrics(
-                answer_relevancy=total_relevancy / n if n > 0 else 0.0,
-                faithfulness=total_faithfulness / n if n > 0 else 0.0,
                 context_precision=total_context_precision / n if n > 0 else 0.0,
-                answer_correctness=total_correctness / n if n > 0 else 0.0,
+                precision_at_k=total_precision_at_k / n if n > 0 else 0.0,
+                recall_at_k=total_recall_at_k / n if n > 0 else 0.0,
                 avg_latency=total_latency / len(results) if results else 0.0,
             )
 

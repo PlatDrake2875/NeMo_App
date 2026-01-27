@@ -100,10 +100,9 @@ export function ExportPanel({ runId, runData }) {
 \\hline
 \\textbf{Metric} & \\textbf{Score} \\\\
 \\hline
-Answer Correctness & ${((metrics.answer_correctness || 0) * 100).toFixed(1)}\\% \\\\
-Faithfulness & ${((metrics.faithfulness || 0) * 100).toFixed(1)}\\% \\\\
 Context Precision & ${((metrics.context_precision || 0) * 100).toFixed(1)}\\% \\\\
-Answer Relevancy & ${((metrics.answer_relevancy || 0) * 100).toFixed(1)}\\% \\\\
+Precision@K & ${((metrics.precision_at_k || 0) * 100).toFixed(1)}\\% \\\\
+Recall@K & ${((metrics.recall_at_k || 0) * 100).toFixed(1)}\\% \\\\
 \\hline
 Avg. Latency & ${(metrics.avg_latency || 0).toFixed(2)}s \\\\
 \\hline

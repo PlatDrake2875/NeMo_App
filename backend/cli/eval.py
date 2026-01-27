@@ -101,10 +101,9 @@ async def cmd_run(args):
     print(f"Successful: {scored_result.metrics.successful_pairs}")
     print()
     print("METRICS:")
-    print(f"  Answer Correctness: {scored_result.metrics.answer_correctness * 100:.1f}%")
-    print(f"  Faithfulness:       {scored_result.metrics.faithfulness * 100:.1f}%")
     print(f"  Context Precision:  {scored_result.metrics.context_precision * 100:.1f}%")
-    print(f"  Answer Relevancy:   {scored_result.metrics.answer_relevancy * 100:.1f}%")
+    print(f"  Precision@K:        {scored_result.metrics.precision_at_k * 100:.1f}%")
+    print(f"  Recall@K:           {scored_result.metrics.recall_at_k * 100:.1f}%")
     print(f"  Avg Latency:        {scored_result.metrics.avg_latency:.2f}s")
     print()
     print(f"Results saved to: {saved_path}")
@@ -129,8 +128,8 @@ async def cmd_list_runs(args):
                     "created_at": data.get("created_at", ""),
                     "pairs": len(data.get("results", [])),
                     "config_hash": data.get("config", {}).get("config_hash", ""),
-                    "correctness": data.get("metrics", {}).get("answer_correctness", 0),
-                    "faithfulness": data.get("metrics", {}).get("faithfulness", 0),
+                    "precision_at_k": data.get("metrics", {}).get("precision_at_k", 0),
+                    "recall_at_k": data.get("metrics", {}).get("recall_at_k", 0),
                 })
         except Exception as e:
             print(f"Warning: Error loading {path}: {e}", file=sys.stderr)
@@ -143,15 +142,15 @@ async def cmd_list_runs(args):
         return
 
     # Print as table
-    print(f"{'ID':<10} {'Name':<30} {'Pairs':>6} {'Correct':>8} {'Faithful':>8} {'Created':<20}")
+    print(f"{'ID':<10} {'Name':<30} {'Pairs':>6} {'P@K':>8} {'R@K':>8} {'Created':<20}")
     print("-" * 90)
     for run in runs[:args.limit]:
         print(
             f"{run['id']:<10} "
             f"{run['name'][:28]:<30} "
             f"{run['pairs']:>6} "
-            f"{run['correctness']*100:>7.1f}% "
-            f"{run['faithfulness']*100:>7.1f}% "
+            f"{run['precision_at_k']*100:>7.1f}% "
+            f"{run['recall_at_k']*100:>7.1f}% "
             f"{run['created_at'][:19]:<20}"
         )
 
@@ -183,10 +182,9 @@ async def cmd_export(args):
                 "Query",
                 "Predicted Answer",
                 "Ground Truth",
-                "Answer Correctness",
-                "Faithfulness",
                 "Context Precision",
-                "Relevancy",
+                "Precision@K",
+                "Recall@K",
                 "Latency (s)",
             ])
 
@@ -197,10 +195,9 @@ async def cmd_export(args):
                     result.get("query", ""),
                     result.get("predicted_answer", ""),
                     result.get("ground_truth", ""),
-                    f"{(scores.get('answer_correctness', 0)) * 100:.1f}%",
-                    f"{(scores.get('faithfulness', 0)) * 100:.1f}%",
                     f"{(scores.get('context_precision', 0)) * 100:.1f}%",
-                    f"{(scores.get('relevancy', 0)) * 100:.1f}%",
+                    f"{(scores.get('precision_at_k', 0)) * 100:.1f}%",
+                    f"{(scores.get('recall_at_k', 0)) * 100:.1f}%",
                     f"{result.get('latency', 0):.2f}",
                 ])
 
@@ -208,11 +205,10 @@ async def cmd_export(args):
             metrics = data.get("metrics", {})
             writer.writerow([])
             writer.writerow(["SUMMARY"])
-            writer.writerow(["Answer Correctness", f"{metrics.get('answer_correctness', 0) * 100:.1f}%"])
-            writer.writerow(["Faithfulness", f"{metrics.get('faithfulness', 0) * 100:.1f}%"])
-            writer.writerow(["Context Precision", f"{metrics.get('context_precision', 0) * 100:.1f}%"])
-            writer.writerow(["Answer Relevancy", f"{metrics.get('answer_relevancy', 0) * 100:.1f}%"])
-            writer.writerow(["Avg Latency", f"{metrics.get('avg_latency', 0):.2f}s"])
+            writer.writerow(["Context Precision", f"{(metrics.get('context_precision') or 0) * 100:.1f}%"])
+            writer.writerow(["Precision@K", f"{(metrics.get('precision_at_k') or 0) * 100:.1f}%"])
+            writer.writerow(["Recall@K", f"{(metrics.get('recall_at_k') or 0) * 100:.1f}%"])
+            writer.writerow(["Avg Latency", f"{(metrics.get('avg_latency') or 0):.2f}s"])
 
     print(f"Exported to: {output_path}")
 
@@ -236,10 +232,9 @@ async def cmd_rescore(args):
     # Print summary
     print()
     print("RESCORED METRICS:")
-    print(f"  Answer Correctness: {scored_result.metrics.answer_correctness * 100:.1f}%")
-    print(f"  Faithfulness:       {scored_result.metrics.faithfulness * 100:.1f}%")
     print(f"  Context Precision:  {scored_result.metrics.context_precision * 100:.1f}%")
-    print(f"  Answer Relevancy:   {scored_result.metrics.answer_relevancy * 100:.1f}%")
+    print(f"  Precision@K:        {scored_result.metrics.precision_at_k * 100:.1f}%")
+    print(f"  Recall@K:           {scored_result.metrics.recall_at_k * 100:.1f}%")
 
 
 async def cmd_dry_run(args):

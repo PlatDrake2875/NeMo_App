@@ -51,10 +51,9 @@ class ScoredResult:
 class AggregateMetrics:
     """Aggregate metrics across all results."""
 
-    answer_relevancy: float = 0.0
-    faithfulness: float = 0.0
     context_precision: float = 0.0
-    answer_correctness: float = 0.0
+    precision_at_k: float = 0.0
+    recall_at_k: float = 0.0
     avg_latency: float = 0.0
     total_pairs: int = 0
     successful_pairs: int = 0
@@ -62,10 +61,9 @@ class AggregateMetrics:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
-            "answer_relevancy": self.answer_relevancy,
-            "faithfulness": self.faithfulness,
             "context_precision": self.context_precision,
-            "answer_correctness": self.answer_correctness,
+            "precision_at_k": self.precision_at_k,
+            "recall_at_k": self.recall_at_k,
             "avg_latency": self.avg_latency,
             "total_pairs": self.total_pairs,
             "successful_pairs": self.successful_pairs,
@@ -114,10 +112,9 @@ class EvalScorer:
     ):
         self.runs_dir = runs_dir
         self.default_metrics = default_metrics or [
-            "answer_correctness",
-            "faithfulness",
-            "relevancy",
             "context_precision",
+            "precision_at_k",
+            "recall_at_k",
         ]
 
     async def score_result(
@@ -238,10 +235,9 @@ class EvalScorer:
             return sum(values) / len(values) if values else 0.0
 
         return AggregateMetrics(
-            answer_relevancy=avg("relevancy"),
-            faithfulness=avg("faithfulness"),
             context_precision=avg("context_precision"),
-            answer_correctness=avg("answer_correctness"),
+            precision_at_k=avg("precision_at_k"),
+            recall_at_k=avg("recall_at_k"),
             avg_latency=sum(r.latency for r in results) / len(results),
             total_pairs=len(results),
             successful_pairs=len(successful),

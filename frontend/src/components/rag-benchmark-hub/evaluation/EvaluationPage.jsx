@@ -232,42 +232,6 @@ export function EvaluationPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {/* Correctness */}
-                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200/50">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Target className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Correctness</span>
-                    </div>
-                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.answer_correctness || 0)}`}>
-                      {((results.metrics?.answer_correctness || 0) * 100).toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">F1 factual + semantic similarity</p>
-                  </div>
-
-                  {/* Faithfulness */}
-                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border border-green-200/50">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Zap className="h-4 w-4 text-green-600" />
-                      <span className="text-sm font-medium text-green-900 dark:text-green-100">Faithfulness</span>
-                    </div>
-                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.faithfulness || 0)}`}>
-                      {((results.metrics?.faithfulness || 0) * 100).toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">Claims supported by context</p>
-                  </div>
-
-                  {/* Relevancy */}
-                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border border-purple-200/50">
-                    <div className="flex items-center gap-2 mb-2">
-                      <FileText className="h-4 w-4 text-purple-600" />
-                      <span className="text-sm font-medium text-purple-900 dark:text-purple-100">Relevancy</span>
-                    </div>
-                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.answer_relevancy || 0)}`}>
-                      {((results.metrics?.answer_relevancy || 0) * 100).toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">Query-answer embedding similarity</p>
-                  </div>
-
                   {/* Context Precision */}
                   <div className="relative p-4 rounded-xl bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20 border border-orange-200/50">
                     <div className="flex items-center gap-2 mb-2">
@@ -278,6 +242,30 @@ export function EvaluationPage() {
                       {((results.metrics?.context_precision || 0) * 100).toFixed(1)}%
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">Retrieval ranking quality</p>
+                  </div>
+
+                  {/* Precision@K */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Precision@K</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.precision_at_k || 0)}`}>
+                      {((results.metrics?.precision_at_k || 0) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Relevant chunks in top-K / K</p>
+                  </div>
+
+                  {/* Recall@K */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border border-green-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="h-4 w-4 text-green-600" />
+                      <span className="text-sm font-medium text-green-900 dark:text-green-100">Recall@K</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.recall_at_k || 0)}`}>
+                      {((results.metrics?.recall_at_k || 0) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Relevant captured vs expanded set</p>
                   </div>
 
                   {/* Latency */}
@@ -316,9 +304,9 @@ export function EvaluationPage() {
                     <TableHead>Predicted Answer</TableHead>
                     <TableHead>Ground Truth</TableHead>
                     <TableHead className="text-right" title="Jaccard: Word overlap between predicted and ground truth">Jaccard</TableHead>
-                    <TableHead className="text-right" title="Answer Correctness: F1 factual + semantic similarity">Correctness</TableHead>
-                    <TableHead className="text-right" title="Faithfulness: Claims supported by retrieved context">Faithful</TableHead>
                     <TableHead className="text-right" title="Context Precision: Retrieval ranking quality">Ctx Prec</TableHead>
+                    <TableHead className="text-right" title="Precision@K: Relevant chunks in top-K / K">P@K</TableHead>
+                    <TableHead className="text-right" title="Recall@K: Relevant in top-K / relevant in expanded set">R@K</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -350,18 +338,18 @@ export function EvaluationPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Badge variant={getScoreBadge(result.scores?.answer_correctness || 0)}>
-                            {((result.scores?.answer_correctness || 0) * 100).toFixed(0)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant={getScoreBadge(result.scores?.faithfulness || 0)}>
-                            {((result.scores?.faithfulness || 0) * 100).toFixed(0)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
                           <Badge variant={getScoreBadge(result.scores?.context_precision || 0)}>
                             {((result.scores?.context_precision || 0) * 100).toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={getScoreBadge(result.scores?.precision_at_k || 0)}>
+                            {((result.scores?.precision_at_k || 0) * 100).toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={getScoreBadge(result.scores?.recall_at_k || 0)}>
+                            {((result.scores?.recall_at_k || 0) * 100).toFixed(0)}%
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -412,15 +400,15 @@ export function EvaluationPage() {
                                 {result.scores && (
                                   <>
                                     <span>
-                                      Relevancy:{" "}
-                                      <strong className={getScoreColor(result.scores.relevancy || 0)}>
-                                        {((result.scores.relevancy || 0) * 100).toFixed(0)}%
+                                      P@K:{" "}
+                                      <strong className={getScoreColor(result.scores.precision_at_k || 0)}>
+                                        {((result.scores.precision_at_k || 0) * 100).toFixed(0)}%
                                       </strong>
                                     </span>
                                     <span>
-                                      Faithfulness:{" "}
-                                      <strong className={getScoreColor(result.scores.faithfulness || 0)}>
-                                        {((result.scores.faithfulness || 0) * 100).toFixed(0)}%
+                                      R@K:{" "}
+                                      <strong className={getScoreColor(result.scores.recall_at_k || 0)}>
+                                        {((result.scores.recall_at_k || 0) * 100).toFixed(0)}%
                                       </strong>
                                     </span>
                                   </>

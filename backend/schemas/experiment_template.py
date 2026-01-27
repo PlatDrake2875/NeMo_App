@@ -23,10 +23,9 @@ class MetricsConfig(BaseModel):
 
     enabled_metrics: List[str] = Field(
         default_factory=lambda: [
-            "answer_relevancy",
-            "faithfulness",
             "context_precision",
-            "answer_correctness",
+            "precision_at_k",
+            "recall_at_k",
         ],
         description="List of metrics to compute",
     )
@@ -50,7 +49,7 @@ class MetricsConfig(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "enabled_metrics": ["answer_relevancy", "faithfulness"],
+                "enabled_metrics": ["context_precision", "precision_at_k", "recall_at_k"],
                 "compute_confidence_intervals": True,
                 "bootstrap_samples": 1000,
                 "confidence_level": 0.95,

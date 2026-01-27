@@ -67,3 +67,4 @@ from . import faithfulness
 from . import correctness
 from . import relevancy
 from . import context_precision
+from . import precision_recall_at_k

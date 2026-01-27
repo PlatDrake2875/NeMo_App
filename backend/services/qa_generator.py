@@ -95,6 +95,7 @@ class QAGeneratorService:
         model: Optional[str] = None,
         use_vllm: Optional[bool] = None,
         temperature: float = 0.3,
+        system_prompt: Optional[str] = None,
     ):
         # Determine whether to use vLLM or OpenRouter
         # Use vLLM if explicitly requested OR if OpenRouter API key is not set
@@ -103,6 +104,7 @@ class QAGeneratorService:
 
         self.use_vllm = use_vllm
         self.temperature = temperature
+        self.system_prompt = system_prompt or QA_GENERATION_SYSTEM_PROMPT
 
         if self.use_vllm:
             self.model = model or VLLM_MODEL
@@ -481,7 +483,7 @@ class QAGeneratorService:
                 # Use local vLLM
                 response = await self._call_vllm(
                     prompt=prompt,
-                    system_prompt=QA_GENERATION_SYSTEM_PROMPT,
+                    system_prompt=self.system_prompt,
                     temperature=self.temperature,
                     max_tokens=1024,
                 )
@@ -489,7 +491,7 @@ class QAGeneratorService:
                 # Use OpenRouter
                 response = await self.client.generate_json(
                     prompt=prompt,
-                    system_prompt=QA_GENERATION_SYSTEM_PROMPT,
+                    system_prompt=self.system_prompt,
                     model=self.model,
                     temperature=self.temperature,
                     max_tokens=1024,
@@ -607,6 +609,18 @@ class QAGeneratorService:
             if current_model:
                 actual_model = current_model
 
+        generation_config = {
+            "model": actual_model,
+            "use_vllm": self.use_vllm,
+            "pairs_per_chunk": pairs_per_chunk,
+            "max_chunks": max_chunks,
+            "chunks_processed": len(chunks),
+            "seed": seed,
+        }
+        # Include custom system prompt if one was provided
+        if self.system_prompt != QA_GENERATION_SYSTEM_PROMPT:
+            generation_config["system_prompt"] = self.system_prompt
+
         dataset = {
             "id": dataset_id,
             "name": name,
@@ -615,14 +629,7 @@ class QAGeneratorService:
             "source_dataset_id": processed_dataset_id,
             "source_collection": collection_name,  # Track which collection this was generated from
             "content_hash": content_hash,
-            "generation_config": {
-                "model": actual_model,
-                "use_vllm": self.use_vllm,
-                "pairs_per_chunk": pairs_per_chunk,
-                "max_chunks": max_chunks,
-                "chunks_processed": len(chunks),
-                "seed": seed,
-            },
+            "generation_config": generation_config,
         }
 
         # Save to file

@@ -46,7 +46,7 @@ export function useMetricComparison() {
   const comparisonData = useMemo(() => {
     if (comparisonRuns.length === 0) return null;
 
-    const metrics = ["answer_correctness", "faithfulness", "context_precision", "answer_relevancy"];
+    const metrics = ["context_precision", "precision_at_k", "recall_at_k"];
 
     // Data for radar chart
     const radarData = metrics.map((metric) => {
@@ -78,10 +78,10 @@ export function useMetricComparison() {
         comparisonRuns.forEach((run) => {
           const runResult = run.results?.[idx];
           if (runResult) {
-            questionData[`${run.name || run.id}_correctness`] =
-              (runResult.scores?.answer_correctness || 0) * 100;
-            questionData[`${run.name || run.id}_faithfulness`] =
-              (runResult.scores?.faithfulness || 0) * 100;
+            questionData[`${run.name || run.id}_precision_at_k`] =
+              (runResult.scores?.precision_at_k || 0) * 100;
+            questionData[`${run.name || run.id}_recall_at_k`] =
+              (runResult.scores?.recall_at_k || 0) * 100;
           }
         });
         perQuestionData.push(questionData);

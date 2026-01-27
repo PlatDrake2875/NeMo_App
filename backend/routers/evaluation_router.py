@@ -24,9 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from schemas.evaluation import (
-    AnswerCorrectnessDetail,
     ChunkingConfig,
-    ClaimVerificationDetail,
     CreateEvalDatasetRequest,
     EvalConfig,
     EvalDatasetResponse,
@@ -34,7 +32,6 @@ from schemas.evaluation import (
     EvalResult,
     EvalResultScores,
     EXPERIMENT_PRESETS,
-    FaithfulnessDetail,
     GeneratedPair,
     GenerateQARequest,
     GenerateQAResponse,
@@ -52,7 +49,8 @@ from services.raw_dataset import raw_dataset_service
 from database_models import RawDataset, RawFile
 from schemas import RawDatasetCreate, SourceTypeEnum
 from database_models import get_db_session
-from services.evaluation_metrics import RAGEvaluationMetrics
+from services.metrics.context_precision import ContextPrecisionMetric
+from services.metrics.precision_recall_at_k import PrecisionAtK, RecallAtK
 from rag_components import get_rag_context_prefix, format_docs
 from config import VLLM_BASE_URL, VLLM_MODEL
 import httpx
@@ -848,18 +846,17 @@ async def run_evaluation(request: RunEvaluationRequest):
     1. Legacy mode: Use existing collection_name (already chunked/embedded)
     2. New mode: Use preprocessed_dataset_id + chunking/embedder config (on-demand processing)
 
-    Uses RAGAS-style metrics:
-    - Answer Correctness: F1 factual + semantic similarity
-    - Faithfulness: LLM-verified claim support from context
-    - Response Relevancy: Embedding-based query-answer similarity
+    Uses retrieval-quality metrics:
     - Context Precision: Mean precision@k for retrieval ranking
+    - Precision@K: Fraction of top-K chunks that are relevant
+    - Recall@K: Fraction of relevant chunks captured in top-K vs expanded set
 
     This will:
     1. Load the evaluation dataset (or use test query if no dataset)
     2. For each Q&A pair:
        - Run the RAG pipeline with the query
        - Record the predicted answer, retrieved chunks, and latency
-       - Calculate RAGAS-style metrics
+       - Calculate retrieval-quality metrics
     3. Compute aggregate metrics
     """
     # Determine effective configuration (apply preset if specified)
@@ -968,14 +965,15 @@ async def run_evaluation(request: RunEvaluationRequest):
         f"rag={request.use_rag}, colbert={effective_colbert}"
     )
 
-    # Initialize RAGAS-style metrics evaluator
-    metrics_evaluator = RAGEvaluationMetrics()
+    # Initialize retrieval-quality metrics
+    ctx_precision_metric = ContextPrecisionMetric()
+    precision_at_k_metric = PrecisionAtK()
+    recall_at_k_metric = RecallAtK()
 
     results = []
-    total_relevancy = 0.0
-    total_faithfulness = 0.0
-    total_correctness = 0.0
     total_context_precision = 0.0
+    total_precision_at_k = 0.0
+    total_recall_at_k = 0.0
     total_latency = 0.0
 
     for i, pair in enumerate(pairs):
@@ -1016,54 +1014,41 @@ async def run_evaluation(request: RunEvaluationRequest):
             # Calculate Jaccard similarity (original metric - kept for reference)
             jaccard_score = _calculate_jaccard(predicted_answer, ground_truth)
 
-            # Calculate RAGAS-style metrics
+            # Calculate retrieval-quality metrics
             logger.info(f"  Computing metrics for pair {i+1}...")
 
-            # Answer Correctness (F1 + semantic)
-            correctness_result = await metrics_evaluator.answer_correctness(
-                predicted_answer, ground_truth
+            # Context Precision (also produces chunk relevance judgments)
+            ctx_result = await ctx_precision_metric.compute(
+                question=query,
+                generated_answer=predicted_answer,
+                reference_answer=ground_truth,
+                retrieved_chunks=chunk_contents,
+            )
+            # Reuse relevance judgments for P@K and R@K
+            chunk_relevances = ctx_result.details.get("chunk_relevances", [])
+
+            # Precision@K
+            pk_result = await precision_at_k_metric.compute(
+                question=query,
+                generated_answer=predicted_answer,
+                reference_answer=ground_truth,
+                retrieved_chunks=chunk_contents,
+                chunk_relevances=chunk_relevances,
             )
 
-            # Faithfulness (LLM claim verification)
-            faithfulness_result = await metrics_evaluator.faithfulness(
-                predicted_answer, chunk_contents
-            )
-
-            # Response Relevancy (embedding similarity)
-            relevancy = metrics_evaluator.response_relevancy(query, predicted_answer)
-
-            # Context Precision (retrieval ranking quality)
-            precision_result = await metrics_evaluator.context_precision(
-                query, chunk_contents, ground_truth
+            # Recall@K
+            rk_result = await recall_at_k_metric.compute(
+                question=query,
+                generated_answer=predicted_answer,
+                reference_answer=ground_truth,
+                retrieved_chunks=chunk_contents,
+                chunk_relevances=chunk_relevances,
             )
 
             total_latency += generation_latency
-            total_relevancy += relevancy
-            total_faithfulness += faithfulness_result.score
-            total_correctness += correctness_result.score
-            total_context_precision += precision_result.score
-
-            # Build detailed score breakdown
-            faithfulness_detail = FaithfulnessDetail(
-                total_claims=faithfulness_result.total_claims,
-                supported_claims=faithfulness_result.supported_claims,
-                claims=[
-                    ClaimVerificationDetail(
-                        claim=c.claim,
-                        supported=c.supported,
-                        evidence=c.evidence,
-                    )
-                    for c in faithfulness_result.claim_details
-                ],
-            )
-
-            correctness_detail = AnswerCorrectnessDetail(
-                factual_score=correctness_result.factual_score,
-                semantic_score=correctness_result.semantic_score,
-                true_positives=correctness_result.true_positives,
-                false_positives=correctness_result.false_positives,
-                false_negatives=correctness_result.false_negatives,
-            )
+            total_context_precision += ctx_result.score
+            total_precision_at_k += pk_result.score
+            total_recall_at_k += rk_result.score
 
             results.append(
                 EvalResult(
@@ -1071,15 +1056,12 @@ async def run_evaluation(request: RunEvaluationRequest):
                     ground_truth=ground_truth,
                     predicted_answer=predicted_answer,
                     retrieved_chunks=retrieved_chunks,
-                    score=jaccard_score,  # Keep Jaccard as main score for backwards compat
+                    score=jaccard_score,
                     scores=EvalResultScores(
                         jaccard=jaccard_score,
-                        relevancy=relevancy,
-                        faithfulness=faithfulness_result.score,
-                        answer_correctness=correctness_result.score,
-                        context_precision=precision_result.score,
-                        faithfulness_detail=faithfulness_detail,
-                        answer_correctness_detail=correctness_detail,
+                        context_precision=ctx_result.score,
+                        precision_at_k=pk_result.score,
+                        recall_at_k=rk_result.score,
                     ),
                     latency=generation_latency,
                 )
@@ -1102,19 +1084,17 @@ async def run_evaluation(request: RunEvaluationRequest):
     # Calculate aggregate metrics
     n = len([r for r in results if r.scores is not None])  # Only count successful evaluations
     metrics = EvalMetrics(
-        answer_relevancy=total_relevancy / n if n > 0 else 0.0,
-        faithfulness=total_faithfulness / n if n > 0 else 0.0,
         context_precision=total_context_precision / n if n > 0 else 0.0,
-        answer_correctness=total_correctness / n if n > 0 else 0.0,
+        precision_at_k=total_precision_at_k / n if n > 0 else 0.0,
+        recall_at_k=total_recall_at_k / n if n > 0 else 0.0,
         avg_latency=total_latency / len(results) if results else 0.0,
     )
 
     logger.info(
         f"Evaluation complete: "
-        f"answer_correctness={metrics.answer_correctness:.2f}, "
-        f"faithfulness={metrics.faithfulness:.2f}, "
-        f"relevancy={metrics.answer_relevancy:.2f}, "
         f"context_precision={metrics.context_precision:.2f}, "
+        f"precision_at_k={metrics.precision_at_k:.2f}, "
+        f"recall_at_k={metrics.recall_at_k:.2f}, "
         f"avg_latency={metrics.avg_latency:.2f}s"
     )
 
@@ -1296,10 +1276,9 @@ async def export_evaluation_run_csv(run_id: str):
         "Predicted Answer",
         "Ground Truth",
         "Jaccard",
-        "Answer Correctness",
-        "Faithfulness",
         "Context Precision",
-        "Relevancy",
+        "Precision@K",
+        "Recall@K",
         "Latency (s)",
     ])
 
@@ -1311,10 +1290,9 @@ async def export_evaluation_run_csv(run_id: str):
             result.get("predicted_answer", ""),
             result.get("ground_truth", ""),
             f"{(scores.get('jaccard') or result.get('score', 0)) * 100:.1f}%",
-            f"{(scores.get('answer_correctness') or 0) * 100:.1f}%",
-            f"{(scores.get('faithfulness') or 0) * 100:.1f}%",
             f"{(scores.get('context_precision') or 0) * 100:.1f}%",
-            f"{(scores.get('relevancy') or 0) * 100:.1f}%",
+            f"{(scores.get('precision_at_k') or 0) * 100:.1f}%",
+            f"{(scores.get('recall_at_k') or 0) * 100:.1f}%",
             f"{result.get('latency', 0):.2f}",
         ])
 
@@ -1322,11 +1300,10 @@ async def export_evaluation_run_csv(run_id: str):
     metrics = data.get("metrics", {})
     writer.writerow([])
     writer.writerow(["SUMMARY METRICS"])
-    writer.writerow(["Answer Correctness", f"{metrics.get('answer_correctness', 0) * 100:.1f}%"])
-    writer.writerow(["Faithfulness", f"{metrics.get('faithfulness', 0) * 100:.1f}%"])
-    writer.writerow(["Context Precision", f"{metrics.get('context_precision', 0) * 100:.1f}%"])
-    writer.writerow(["Answer Relevancy", f"{metrics.get('answer_relevancy', 0) * 100:.1f}%"])
-    writer.writerow(["Avg Latency", f"{metrics.get('avg_latency', 0):.2f}s"])
+    writer.writerow(["Context Precision", f"{(metrics.get('context_precision') or 0) * 100:.1f}%"])
+    writer.writerow(["Precision@K", f"{(metrics.get('precision_at_k') or 0) * 100:.1f}%"])
+    writer.writerow(["Recall@K", f"{(metrics.get('recall_at_k') or 0) * 100:.1f}%"])
+    writer.writerow(["Avg Latency", f"{(metrics.get('avg_latency') or 0):.2f}s"])
 
     output.seek(0)
 
@@ -1358,6 +1335,7 @@ async def generate_qa_dataset(request: GenerateQARequest):
             model=request.model,
             use_vllm=request.use_vllm,
             temperature=request.temperature,
+            system_prompt=request.system_prompt,
         )
 
         result = await generator.generate_pairs_for_dataset(
@@ -1707,7 +1685,7 @@ async def compare_evaluation_runs(
 
     # Default metrics to compare
     if metrics is None:
-        metrics = ["answer_correctness", "faithfulness", "context_precision", "relevancy"]
+        metrics = ["context_precision", "precision_at_k", "recall_at_k"]
 
     # Extract scores for each metric
     comparisons = []

@@ -9,6 +9,7 @@ import {
 import { Button } from "../../ui/button";
 import { Label } from "../../ui/label";
 import { Input } from "../../ui/input";
+import { Textarea } from "../../ui/textarea";
 import {
   Select,
   SelectContent,
@@ -43,6 +44,7 @@ export function GenerateQAPage() {
     useVllm: false, // false = OpenRouter, true = local vLLM
     model: "default", // "default" = use default for provider
     temperature: 0.3,
+    systemPrompt: "",
   });
   const [generationResult, setGenerationResult] = useState(null);
 
