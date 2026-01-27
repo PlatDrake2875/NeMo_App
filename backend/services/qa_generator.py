@@ -25,6 +25,7 @@ from config import (
     VLLM_MODEL,
 )
 from services.openrouter_client import OpenRouterClient
+from services.chunking import ChunkingService
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,11 @@ class QAGeneratorService:
         seed: Optional[int] = None,
     ) -> tuple[str, List[Dict[str, Any]]]:
         """
-        Retrieve chunks from a processed dataset's vector store.
+        Retrieve chunks from a processed dataset.
+
+        Supports two flows:
+        1. New flow: Read from PreprocessedDocument table and chunk on-the-fly
+        2. Legacy flow: Read from vector store (pgvector/qdrant)
 
         Args:
             processed_dataset_id: ID of the processed dataset
@@ -126,7 +131,26 @@ class QAGeneratorService:
             Tuple of (collection_name, list of chunk dicts with content and metadata)
         """
         with self.session_maker() as session:
-            # Get the processed dataset info including vector_backend
+            # First, check if this dataset uses the new flow (has PreprocessedDocument entries)
+            preprocessed_check = session.execute(
+                text("""
+                    SELECT COUNT(*) FROM preprocessed_documents
+                    WHERE processed_dataset_id = :dataset_id
+                """),
+                {"dataset_id": processed_dataset_id}
+            )
+            preprocessed_count = preprocessed_check.scalar()
+
+            if preprocessed_count > 0:
+                # New flow: Get chunks from PreprocessedDocument table
+                logger.info(f"Using new flow: found {preprocessed_count} preprocessed documents")
+                chunks = await self._get_chunks_from_preprocessed_docs(
+                    session, processed_dataset_id, max_chunks, seed
+                )
+                # Use dataset ID as collection name placeholder since there's no real collection yet
+                return f"preprocessed_{processed_dataset_id}", chunks
+
+            # Legacy flow: Get the processed dataset info including vector_backend
             result = session.execute(
                 text("""
                     SELECT pd.collection_name, pd.name, rd.name as raw_dataset_name, pd.vector_backend
@@ -156,6 +180,85 @@ class QAGeneratorService:
                 )
 
             return collection_name, chunks
+
+    async def _get_chunks_from_preprocessed_docs(
+        self,
+        session,
+        processed_dataset_id: int,
+        max_chunks: Optional[int] = None,
+        seed: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get chunks from PreprocessedDocument table (new flow).
+
+        Chunks the full documents on-the-fly using default chunking config.
+        """
+        from langchain_core.documents import Document
+
+        # Get preprocessed documents
+        result = session.execute(
+            text("""
+                SELECT pd.id, pd.content, pd.original_filename, pd.metadata_json,
+                       pds.name as dataset_name
+                FROM preprocessed_documents pd
+                JOIN processed_datasets pds ON pd.processed_dataset_id = pds.id
+                WHERE pd.processed_dataset_id = :dataset_id
+            """),
+            {"dataset_id": processed_dataset_id}
+        )
+        rows = result.fetchall()
+
+        if not rows:
+            return []
+
+        # Convert to LangChain documents
+        documents = []
+        for row in rows:
+            doc_id, content, filename, metadata_json, dataset_name = row
+            metadata = metadata_json if metadata_json else {}
+            metadata["original_filename"] = filename
+            metadata["preprocessed_doc_id"] = doc_id
+            documents.append(Document(page_content=content, metadata=metadata))
+
+        # Chunk documents using default config (for Q&A generation)
+        chunking_service = ChunkingService()
+        chunked_docs = chunking_service.chunk_documents(
+            documents=documents,
+            method="recursive",
+            chunk_size=1000,
+            chunk_overlap=200,
+        )
+
+        # Apply ordering
+        if seed is not None:
+            import hashlib
+            chunked_docs.sort(
+                key=lambda d: hashlib.md5(
+                    f"{d.page_content[:100]}{seed}".encode()
+                ).hexdigest()
+            )
+        else:
+            import random
+            random.shuffle(chunked_docs)
+
+        # Apply limit
+        if max_chunks and len(chunked_docs) > max_chunks:
+            chunked_docs = chunked_docs[:max_chunks]
+
+        # Convert to expected format
+        chunks = []
+        for doc in chunked_docs:
+            source_info = doc.metadata.get("original_filename", "Unknown source")
+            chunks.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "source_info": source_info,
+                "dataset_name": dataset_name if rows else "Unknown",
+                "chunk_id": None,
+            })
+
+        logger.info(f"Generated {len(chunks)} chunks from preprocessed documents")
+        return chunks
 
     async def _get_chunks_from_pgvector(
         self,

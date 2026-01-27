@@ -32,12 +32,13 @@ export function ProcessedDatasetEditor() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Chunk pagination
+  // Chunk/document pagination
   const [chunks, setChunks] = useState([]);
   const [isLoadingChunks, setIsLoadingChunks] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalChunks, setTotalChunks] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isPreprocessedDocs, setIsPreprocessedDocs] = useState(false); // True if viewing full docs (new flow)
   const chunksPerPage = 20;
 
   // Processing state
@@ -82,6 +83,7 @@ export function ProcessedDatasetEditor() {
       const data = await response.json();
       setChunks(data.chunks || []);
       setTotalChunks(data.total || 0);
+      setIsPreprocessedDocs(data.type === "preprocessed_documents");
     } catch (err) {
       console.error("Error fetching chunks:", err);
       setError(err.message);
@@ -280,8 +282,14 @@ export function ProcessedDatasetEditor() {
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {dataset.chunk_count || 0} chunks ·{" "}
-                          {dataset.vector_backend}
+                          {dataset.chunk_count > 0 ? (
+                            <>{dataset.chunk_count} chunks</>
+                          ) : dataset.document_count > 0 ? (
+                            <>{dataset.document_count} docs (chunks at eval)</>
+                          ) : (
+                            <>0 chunks</>
+                          )}
+                          {" "}· {dataset.vector_backend}
                         </p>
                       </div>
                     </div>
@@ -372,7 +380,7 @@ export function ProcessedDatasetEditor() {
                     <div className="relative flex-1">
                       <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                       <Input
-                        placeholder="Search chunks..."
+                        placeholder="Search documents..."
                         value={searchQuery}
                         onChange={(e) => {
                           setSearchQuery(e.target.value);
@@ -383,7 +391,14 @@ export function ProcessedDatasetEditor() {
                     </div>
                   </div>
 
-                  {/* Chunks List */}
+                  {/* Info banner for preprocessed documents */}
+                  {isPreprocessedDocs && chunks.length > 0 && (
+                    <div className="mb-3 p-2 text-xs bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded text-blue-700 dark:text-blue-300">
+                      These are full preprocessed documents. Chunking happens at evaluation time, allowing you to experiment with different chunk sizes.
+                    </div>
+                  )}
+
+                  {/* Chunks/Documents List */}
                   <ScrollArea className="flex-1">
                     {isLoadingChunks ? (
                       <div className="flex items-center justify-center py-8">
@@ -392,8 +407,8 @@ export function ProcessedDatasetEditor() {
                     ) : chunks.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         {searchQuery
-                          ? "No chunks match your search"
-                          : "No chunks available"}
+                          ? "No documents match your search"
+                          : "No documents available. Try processing or reprocessing the dataset."}
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -407,7 +422,12 @@ export function ProcessedDatasetEditor() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs text-muted-foreground">
                                   Source: {chunk.metadata?.source || "Unknown"} ·
-                                  Chunk {(currentPage - 1) * chunksPerPage + idx + 1}
+                                  {isPreprocessedDocs ? "Doc" : "Chunk"} {(currentPage - 1) * chunksPerPage + idx + 1}
+                                  {chunk.metadata?.full_length > 2000 && (
+                                    <span className="ml-1 text-yellow-600">
+                                      (truncated, {Math.round(chunk.metadata.full_length / 1000)}k chars)
+                                    </span>
+                                  )}
                                 </p>
                               </div>
                             </div>
@@ -438,7 +458,7 @@ export function ProcessedDatasetEditor() {
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between pt-2 border-t">
                       <p className="text-sm text-muted-foreground">
-                        {totalChunks} chunks total
+                        {totalChunks} {isPreprocessedDocs ? "documents" : "chunks"} total
                       </p>
                       <div className="flex items-center gap-2">
                         <Button

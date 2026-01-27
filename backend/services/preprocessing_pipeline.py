@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from database_models import (
     LLMExtractedMetadata,
+    PreprocessedDocument,
     ProcessedDataset,
     ProcessingStatus,
     RawDataset,
@@ -92,8 +93,15 @@ class PreprocessingPipelineService:
         if config.llm_metadata.enabled:
             metadata_extractor = LLMMetadataExtractor(config.llm_metadata.model)
 
-        # Get vector store
-        vectorstore = self._get_vectorstore(processed_ds)
+        # Determine if we're using the new flow (no chunking at preprocessing time)
+        # In new flow: chunking is None, we save cleaned documents to DB
+        # In legacy flow: chunking is defined, we chunk and index to vector store
+        use_new_flow = config.chunking is None
+
+        # Get vector store only if using legacy flow
+        vectorstore = None
+        if not use_new_flow:
+            vectorstore = self._get_vectorstore(processed_ds)
 
         # Process statistics
         stats = {
@@ -101,6 +109,7 @@ class PreprocessingPipelineService:
             "processed_files": 0,
             "total_documents": 0,
             "total_chunks": 0,
+            "use_new_flow": use_new_flow,
             "errors": [],
         }
 
@@ -125,6 +134,7 @@ class PreprocessingPipelineService:
                         config=config,
                         metadata_extractor=metadata_extractor,
                         vectorstore=vectorstore,
+                        use_new_flow=use_new_flow,
                     )
 
                     stats["processed_files"] += 1
@@ -211,8 +221,18 @@ class PreprocessingPipelineService:
         config: PreprocessingConfig,
         metadata_extractor: Optional[LLMMetadataExtractor],
         vectorstore: Any,
+        use_new_flow: bool = False,
     ) -> Dict[str, int]:
-        """Process a single file through the pipeline."""
+        """
+        Process a single file through the pipeline.
+
+        In new flow (use_new_flow=True):
+            Load -> Clean -> Extract Metadata -> Save to PreprocessedDocument table
+            (No chunking or indexing - that happens at evaluation time)
+
+        In legacy flow (use_new_flow=False):
+            Load -> Clean -> Extract Metadata -> Chunk -> Index to vector store
+        """
         stats = {"documents": 0, "chunks": 0}
 
         # Step 1: Load file into documents
@@ -240,6 +260,21 @@ class PreprocessingPipelineService:
                 processed_dataset_id=processed_ds.id,
             )
 
+        # NEW FLOW: Save cleaned documents to database (no chunking/indexing)
+        if use_new_flow:
+            self._save_preprocessed_documents(
+                db=db,
+                documents=documents,
+                raw_file=raw_file,
+                processed_dataset_id=processed_ds.id,
+            )
+            logger.info(
+                f"Preprocessed {raw_file.filename}: "
+                f"{stats['documents']} docs saved (chunking deferred to evaluation)"
+            )
+            return stats
+
+        # LEGACY FLOW: Chunk and index to vector store
         # Step 5: Chunk documents
         chunks = self._chunk_documents(documents, config.chunking)
         stats["chunks"] = len(chunks)
@@ -251,7 +286,7 @@ class PreprocessingPipelineService:
             chunk.metadata["processed_dataset_id"] = processed_ds.id
 
         # Step 6: Index in vector store
-        if chunks:
+        if chunks and vectorstore:
             self._index_documents(chunks, vectorstore)
 
         logger.info(
@@ -260,6 +295,34 @@ class PreprocessingPipelineService:
         )
 
         return stats
+
+    def _save_preprocessed_documents(
+        self,
+        db: Session,
+        documents: List[Document],
+        raw_file: RawFile,
+        processed_dataset_id: int,
+    ) -> int:
+        """
+        Save cleaned documents to PreprocessedDocument table.
+
+        This is used in the new flow where chunking happens at evaluation time.
+        """
+        saved_count = 0
+        for doc in documents:
+            preprocessed_doc = PreprocessedDocument(
+                processed_dataset_id=processed_dataset_id,
+                raw_file_id=raw_file.id,
+                content=doc.page_content,
+                original_filename=raw_file.filename,
+                metadata_json=doc.metadata,
+            )
+            db.add(preprocessed_doc)
+            saved_count += 1
+
+        db.commit()
+        logger.debug(f"Saved {saved_count} preprocessed documents for {raw_file.filename}")
+        return saved_count
 
     def _load_file(self, raw_file: RawFile) -> List[Document]:
         """Load raw file content into LangChain documents."""

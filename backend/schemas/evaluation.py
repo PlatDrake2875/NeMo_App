@@ -4,7 +4,73 @@ import hashlib
 import json
 from datetime import datetime
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+# --- Chunking Configuration (moved from preprocessing to evaluation) ---
+
+class ChunkingConfig(BaseModel):
+    """Configuration for document chunking during evaluation."""
+
+    method: Literal["recursive", "fixed", "semantic"] = Field(
+        default="recursive",
+        description="Chunking method"
+    )
+    chunk_size: int = Field(default=1000, ge=100, le=10000, description="Target chunk size in characters")
+    chunk_overlap: int = Field(default=200, ge=0, le=2000, description="Overlap between chunks")
+
+    @model_validator(mode='after')
+    def validate_overlap_less_than_size(self) -> 'ChunkingConfig':
+        """Validate that chunk_overlap is less than chunk_size."""
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("chunk_overlap must be less than chunk_size")
+        return self
+
+
+# --- Experiment Presets ---
+
+class ExperimentPreset(BaseModel):
+    """Predefined experiment configuration for quick setup."""
+
+    name: str
+    description: str
+    chunking: ChunkingConfig
+    embedder: str
+    top_k: int
+    reranker: Literal["none", "colbert"]
+    temperature: float
+
+
+# Predefined presets
+EXPERIMENT_PRESETS: dict[str, ExperimentPreset] = {
+    "quick": ExperimentPreset(
+        name="Quick Test",
+        description="Fast iteration with smaller chunks and lightweight embedder",
+        chunking=ChunkingConfig(method="recursive", chunk_size=500, chunk_overlap=50),
+        embedder="sentence-transformers/all-MiniLM-L6-v2",
+        top_k=3,
+        reranker="none",
+        temperature=0.1,
+    ),
+    "balanced": ExperimentPreset(
+        name="Balanced",
+        description="Good balance of quality and speed (recommended)",
+        chunking=ChunkingConfig(method="recursive", chunk_size=1000, chunk_overlap=200),
+        embedder="sentence-transformers/all-MiniLM-L6-v2",
+        top_k=5,
+        reranker="none",
+        temperature=0.1,
+    ),
+    "high_quality": ExperimentPreset(
+        name="High Quality",
+        description="Best accuracy with larger chunks and better embedder",
+        chunking=ChunkingConfig(method="recursive", chunk_size=1500, chunk_overlap=300),
+        embedder="BAAI/bge-small-en-v1.5",
+        top_k=7,
+        reranker="colbert",
+        temperature=0.1,
+    ),
+}
 
 
 class QAPair(BaseModel):
@@ -47,8 +113,13 @@ class EvalConfigSchema(BaseModel):
     top_k: int = Field(default=5, ge=1, le=50, description="Number of documents to retrieve")
     temperature: float = Field(default=0.1, ge=0, le=1, description="LLM temperature")
     dataset_id: Optional[str] = Field(default=None, description="Evaluation dataset ID")
-    collection_name: str = Field(default="rag_documents", description="Vector store collection")
+    collection_name: Optional[str] = Field(default=None, description="Vector store collection (legacy mode)")
     use_rag: bool = Field(default=True, description="Whether to use RAG")
+
+    # New fields for experiment flow
+    preprocessed_dataset_id: Optional[int] = Field(default=None, description="Preprocessed dataset ID (new mode)")
+    chunking: Optional[ChunkingConfig] = Field(default=None, description="Chunking configuration")
+    preset: Optional[str] = Field(default=None, description="Preset name if used")
 
     def config_hash(self) -> str:
         """Generate SHA-256 hash for deduplication/reproducibility."""
@@ -59,8 +130,16 @@ class EvalConfigSchema(BaseModel):
             "temperature": self.temperature,
             "dataset_id": self.dataset_id,
             "collection_name": self.collection_name,
+            "preprocessed_dataset_id": self.preprocessed_dataset_id,
             "use_rag": self.use_rag,
         }
+        # Include chunking in hash if present
+        if self.chunking:
+            config_dict["chunking"] = {
+                "method": self.chunking.method,
+                "chunk_size": self.chunking.chunk_size,
+                "chunk_overlap": self.chunking.chunk_overlap,
+            }
         config_str = json.dumps(config_dict, sort_keys=True)
         return hashlib.sha256(config_str.encode()).hexdigest()[:12]
 
@@ -98,18 +177,51 @@ class EvalDatasetResponse(BaseModel):
 
 
 class RunEvaluationRequest(BaseModel):
-    """Request to run an evaluation."""
+    """
+    Request to run an evaluation experiment.
+
+    Supports two modes:
+    1. Legacy mode: Use existing collection_name (already chunked/embedded)
+    2. New mode: Use preprocessed_dataset_id + chunking/embedder config (on-demand processing)
+    """
 
     experiment_name: Optional[str] = Field(None, description="Custom name for this experiment")
     eval_dataset_id: Optional[str] = Field(None, description="ID of the evaluation dataset to use (optional)")
-    collection_name: str = Field(..., description="Vector store collection to query")
+
+    # --- Source selection (one of these required) ---
+    # Legacy: use existing vector store collection
+    collection_name: Optional[str] = Field(None, description="Vector store collection to query (legacy mode)")
+    # New: use preprocessed dataset with on-demand chunking/embedding
+    preprocessed_dataset_id: Optional[int] = Field(None, description="Preprocessed dataset ID (new mode)")
+
+    # --- Experiment preset (optional shortcut) ---
+    preset: Optional[Literal["quick", "balanced", "high_quality"]] = Field(
+        None, description="Use a predefined preset instead of custom config"
+    )
+
+    # --- Chunking config (new mode, or override preset) ---
+    chunking: Optional[ChunkingConfig] = Field(
+        None, description="Chunking configuration (required for new mode if no preset)"
+    )
+
+    # --- RAG config ---
     use_rag: bool = Field(True, description="Whether to enable RAG")
-    use_colbert: bool = Field(True, description="Whether to enable ColBERT reranking")
+    use_colbert: bool = Field(False, description="Whether to enable ColBERT reranking")
     top_k: int = Field(5, description="Number of documents to retrieve", ge=1, le=50)
     temperature: float = Field(0.1, description="LLM temperature", ge=0, le=1)
     embedder: str = Field("sentence-transformers/all-MiniLM-L6-v2", description="Embedding model to use for retrieval")
+
     # Optional: inline test query when no dataset is provided
     test_query: Optional[str] = Field(None, description="Single test query to run (used when no dataset)")
+
+    @model_validator(mode='after')
+    def validate_source(self) -> 'RunEvaluationRequest':
+        """Validate that either collection_name or preprocessed_dataset_id is provided."""
+        if not self.collection_name and not self.preprocessed_dataset_id:
+            raise ValueError("Either collection_name or preprocessed_dataset_id must be provided")
+        if self.preprocessed_dataset_id and not self.chunking and not self.preset:
+            raise ValueError("When using preprocessed_dataset_id, either chunking config or preset is required")
+        return self
 
 
 class RetrievedChunk(BaseModel):
@@ -195,6 +307,11 @@ class EvalConfig(BaseModel):
     temperature: float
     embedder: str = "sentence-transformers/all-MiniLM-L6-v2"
     llm_model: Optional[str] = None  # LLM model used for answer generation
+
+    # New fields for experiment tracking
+    preprocessed_dataset_id: Optional[int] = None  # Source dataset (new mode)
+    chunking: Optional[ChunkingConfig] = None  # Chunking config used
+    preset_name: Optional[str] = None  # Preset used, if any
 
 
 class RunEvaluationResponse(BaseModel):

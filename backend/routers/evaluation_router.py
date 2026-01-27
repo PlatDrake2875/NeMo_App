@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from schemas.evaluation import (
     AnswerCorrectnessDetail,
+    ChunkingConfig,
     ClaimVerificationDetail,
     CreateEvalDatasetRequest,
     EvalConfig,
@@ -29,6 +30,7 @@ from schemas.evaluation import (
     EvalMetrics,
     EvalResult,
     EvalResultScores,
+    EXPERIMENT_PRESETS,
     FaithfulnessDetail,
     GeneratedPair,
     GenerateQARequest,
@@ -40,6 +42,8 @@ from schemas.evaluation import (
     RunEvaluationResponse,
 )
 from services.qa_generator import QAGeneratorService
+from services.embedding_service import embedding_service
+from database_models import get_db_session
 from services.evaluation_metrics import RAGEvaluationMetrics
 from rag_components import get_rag_context_prefix, format_docs
 from config import VLLM_BASE_URL, VLLM_MODEL
@@ -149,6 +153,10 @@ async def run_evaluation(request: RunEvaluationRequest):
     """
     Run an evaluation using the specified dataset and configuration.
 
+    Supports two modes:
+    1. Legacy mode: Use existing collection_name (already chunked/embedded)
+    2. New mode: Use preprocessed_dataset_id + chunking/embedder config (on-demand processing)
+
     Uses RAGAS-style metrics:
     - Answer Correctness: F1 factual + semantic similarity
     - Faithfulness: LLM-verified claim support from context
@@ -163,6 +171,95 @@ async def run_evaluation(request: RunEvaluationRequest):
        - Calculate RAGAS-style metrics
     3. Compute aggregate metrics
     """
+    # Determine effective configuration (apply preset if specified)
+    effective_chunking = request.chunking
+    effective_embedder = request.embedder
+    effective_top_k = request.top_k
+    effective_colbert = request.use_colbert
+    effective_temperature = request.temperature
+    preset_name = None
+
+    if request.preset and request.preset in EXPERIMENT_PRESETS:
+        preset = EXPERIMENT_PRESETS[request.preset]
+        preset_name = preset.name
+        # Use preset values unless explicitly overridden
+        if not request.chunking:
+            effective_chunking = preset.chunking
+        if request.embedder == "sentence-transformers/all-MiniLM-L6-v2":  # Default value
+            effective_embedder = preset.embedder
+        if request.top_k == 5:  # Default value
+            effective_top_k = preset.top_k
+        if not request.use_colbert:  # Default is False
+            effective_colbert = preset.reranker == "colbert"
+        if request.temperature == 0.1:  # Default value
+            effective_temperature = preset.temperature
+
+        logger.info(f"Using preset '{preset_name}': {preset.description}")
+
+    # Determine collection name
+    collection_name = request.collection_name
+    was_cached = False
+
+    # New mode: Use preprocessed_dataset_id with on-demand chunking/embedding
+    # Only use new flow if dataset actually has preprocessed documents
+    if request.preprocessed_dataset_id and effective_chunking:
+        from database_models import PreprocessedDocument, ProcessedDataset
+        from sqlalchemy import func
+
+        # Get database session
+        db_gen = get_db_session()
+        db = next(db_gen)
+
+        try:
+            # Check if dataset has preprocessed documents (new flow)
+            preprocessed_count = db.query(func.count(PreprocessedDocument.id)).filter(
+                PreprocessedDocument.processed_dataset_id == request.preprocessed_dataset_id
+            ).scalar()
+
+            if preprocessed_count > 0:
+                # New flow: dataset has preprocessed documents, use on-demand embedding
+                logger.info(
+                    f"New flow: Creating/getting collection for dataset {request.preprocessed_dataset_id} "
+                    f"with chunking {effective_chunking.method}/{effective_chunking.chunk_size} "
+                    f"and embedder {effective_embedder}"
+                )
+
+                # Get or create collection using EmbeddingService
+                collection_name, was_cached = await embedding_service.get_or_create_collection(
+                    db=db,
+                    preprocessed_dataset_id=request.preprocessed_dataset_id,
+                    chunking_config=effective_chunking,
+                    embedder_model=effective_embedder,
+                )
+
+                logger.info(
+                    f"Using collection '{collection_name}' (cached={was_cached})"
+                )
+            else:
+                # Legacy flow: dataset was processed with direct indexing
+                # Get collection name from ProcessedDataset table
+                processed_ds = db.query(ProcessedDataset).filter(
+                    ProcessedDataset.id == request.preprocessed_dataset_id
+                ).first()
+
+                if processed_ds and processed_ds.collection_name:
+                    collection_name = processed_ds.collection_name
+                    logger.info(
+                        f"Dataset {request.preprocessed_dataset_id} has no preprocessed documents, "
+                        f"using legacy collection '{collection_name}'"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Dataset {request.preprocessed_dataset_id} has no preprocessed documents and no collection. "
+                               "Please re-process the dataset."
+                    )
+        finally:
+            try:
+                next(db_gen)
+            except StopIteration:
+                pass
+
     # Get pairs from dataset or use test query
     if request.eval_dataset_id:
         dataset = _load_dataset(request.eval_dataset_id)
@@ -176,8 +273,8 @@ async def run_evaluation(request: RunEvaluationRequest):
 
     logger.info(
         f"Starting evaluation: dataset='{dataset_name}', "
-        f"pairs={len(pairs)}, collection={request.collection_name}, "
-        f"rag={request.use_rag}, colbert={request.use_colbert}"
+        f"pairs={len(pairs)}, collection={collection_name}, "
+        f"rag={request.use_rag}, colbert={effective_colbert}"
     )
 
     # Initialize RAGAS-style metrics evaluator
@@ -204,9 +301,9 @@ async def run_evaluation(request: RunEvaluationRequest):
                 # Get RAG context prefix
                 rag_prefix = await get_rag_context_prefix(
                     query,
-                    collection_name=request.collection_name,
-                    use_colbert=request.use_colbert,
-                    embedder=request.embedder,
+                    collection_name=collection_name,
+                    use_colbert=effective_colbert,
+                    embedder=effective_embedder,
                 )
                 prompt_content = rag_prefix if rag_prefix else query
             else:
@@ -216,7 +313,7 @@ async def run_evaluation(request: RunEvaluationRequest):
             predicted_answer, retrieved_chunks = await _generate_answer(
                 prompt_content,
                 query,
-                request.temperature,
+                effective_temperature,
                 request.use_rag,
             )
 
@@ -336,13 +433,16 @@ async def run_evaluation(request: RunEvaluationRequest):
         results=results,
         metrics=metrics,
         config=EvalConfig(
-            collection=request.collection_name,
+            collection=collection_name,
             use_rag=request.use_rag,
-            use_colbert=request.use_colbert,
-            top_k=request.top_k,
-            temperature=request.temperature,
-            embedder=request.embedder,
+            use_colbert=effective_colbert,
+            top_k=effective_top_k,
+            temperature=effective_temperature,
+            embedder=effective_embedder,
             llm_model=VLLM_MODEL,
+            preprocessed_dataset_id=request.preprocessed_dataset_id,
+            chunking=effective_chunking,
+            preset_name=preset_name,
         ),
     )
 
@@ -1153,10 +1253,23 @@ async def start_evaluation_task(request: RunEvaluationRequest):
     - Survives browser disconnections
     - Provides real-time progress updates
     - Can be cancelled if needed
+
+    Supports two modes:
+    1. Legacy mode: collection_name provided (use existing indexed collection)
+    2. New mode: preprocessed_dataset_id + chunking config (on-demand embedding)
     """
     from services.evaluation_task_service import get_evaluation_task_service
 
     service = get_evaluation_task_service()
+
+    # Prepare chunking config dict if provided
+    chunking_dict = None
+    if request.chunking:
+        chunking_dict = {
+            "method": request.chunking.method,
+            "chunk_size": request.chunking.chunk_size,
+            "chunk_overlap": request.chunking.chunk_overlap,
+        }
 
     task_id = await service.create_task(
         experiment_name=request.experiment_name,
@@ -1167,6 +1280,10 @@ async def start_evaluation_task(request: RunEvaluationRequest):
         top_k=request.top_k,
         temperature=request.temperature,
         embedder=request.embedder,
+        # New flow parameters
+        preprocessed_dataset_id=request.preprocessed_dataset_id,
+        preset=request.preset,
+        chunking=chunking_dict,
     )
 
     return {"task_id": task_id, "message": "Evaluation started"}
@@ -1230,3 +1347,81 @@ async def cancel_evaluation_task(task_id: str):
         )
 
     return {"message": f"Task {task_id} cancelled"}
+
+
+# =============================================================================
+# Experiment Presets & Embedding Cache Endpoints
+# =============================================================================
+
+@router.get("/presets")
+async def list_experiment_presets():
+    """
+    List available experiment presets.
+
+    Returns predefined configurations for quick setup:
+    - Quick Test: Fast iteration with smaller chunks
+    - Balanced: Good balance of quality and speed (recommended)
+    - High Quality: Best accuracy with larger chunks and better embedder
+    """
+    return {
+        name: {
+            "name": preset.name,
+            "description": preset.description,
+            "chunking": {
+                "method": preset.chunking.method,
+                "chunk_size": preset.chunking.chunk_size,
+                "chunk_overlap": preset.chunking.chunk_overlap,
+            },
+            "embedder": preset.embedder,
+            "top_k": preset.top_k,
+            "reranker": preset.reranker,
+            "temperature": preset.temperature,
+        }
+        for name, preset in EXPERIMENT_PRESETS.items()
+    }
+
+
+@router.get("/embedding-cache")
+async def list_embedding_caches(preprocessed_dataset_id: int = None):
+    """
+    List all cached embedding collections.
+
+    Cached collections can be reused to avoid re-embedding when running
+    experiments with the same configuration.
+    """
+    db_gen = get_db_session()
+    db = next(db_gen)
+
+    try:
+        caches = embedding_service.list_cached_collections(
+            db, preprocessed_dataset_id=preprocessed_dataset_id
+        )
+        return caches
+    finally:
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+
+@router.delete("/embedding-cache/{cache_id}")
+async def delete_embedding_cache(cache_id: int):
+    """
+    Delete a cached embedding collection.
+
+    This removes the cache entry. The vector store collection may still
+    exist and should be cleaned up separately if needed.
+    """
+    db_gen = get_db_session()
+    db = next(db_gen)
+
+    try:
+        deleted = embedding_service.delete_cached_collection(db, cache_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Cache {cache_id} not found")
+        return {"status": "deleted", "id": cache_id}
+    finally:
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass

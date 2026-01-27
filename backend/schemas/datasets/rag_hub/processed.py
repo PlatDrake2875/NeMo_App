@@ -19,7 +19,13 @@ class ProcessedDatasetCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
     raw_dataset_id: int
-    embedder_config: EmbedderConfig
+    # embedder_config is optional for new flow where embedding is deferred to evaluation time
+    embedder_config: Optional[EmbedderConfig] = Field(
+        default_factory=lambda: EmbedderConfig(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_type="huggingface"
+        )
+    )
     preprocessing_config: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     vector_backend: str = Field(default="pgvector", pattern="^(pgvector|qdrant)$")
 

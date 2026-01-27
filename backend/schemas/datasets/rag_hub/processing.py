@@ -135,22 +135,37 @@ class ChunkingConfigSchema(BaseModel):
 
 
 class PreprocessingConfig(BaseModel):
-    """Complete preprocessing configuration."""
+    """
+    Complete preprocessing configuration.
+
+    In the new flow, preprocessing stops at cleaning/metadata extraction.
+    Chunking and embedding happen during evaluation, allowing experimentation
+    with different chunking/embedding strategies on the same cleaned data.
+
+    Set `chunking` to None (or omit) to use the new flow.
+    Legacy datasets may still have chunking config for backward compatibility.
+    """
 
     cleaning: CleaningConfig = Field(default_factory=CleaningConfig)
     lightweight_metadata: LightweightMetadataConfig = Field(
         default_factory=LightweightMetadataConfig
     )
     llm_metadata: LLMMetadataConfig = Field(default_factory=LLMMetadataConfig)
-    chunking: ChunkingConfigSchema = Field(default_factory=ChunkingConfigSchema)
+
+    # Chunking is now optional - if None, preprocessing stops at cleaning
+    # and chunking happens during evaluation (new flow)
+    chunking: Optional[ChunkingConfigSchema] = Field(
+        default=None,
+        description="Chunking config. If None, chunking happens at evaluation time (recommended)."
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "cleaning": {"enabled": False},
+                "cleaning": {"enabled": True, "normalize_whitespace": True},
                 "lightweight_metadata": {"enabled": True, "extract_rake_keywords": True},
-                "llm_metadata": {"enabled": True, "extract_summary": True},
-                "chunking": {"method": "recursive", "chunk_size": 1000}
+                "llm_metadata": {"enabled": False},
+                "chunking": None  # Chunking at evaluation time
             }
         }
     )

@@ -34,7 +34,7 @@ Base = declarative_base()
 
 
 # Re-export enums for backward compatibility
-__all__ = ["SourceType", "FileType", "ProcessingStatus"]
+__all__ = ["SourceType", "FileType", "ProcessingStatus", "PreprocessedDocument", "EmbeddingCache"]
 
 
 # --- Raw Dataset Models ---
@@ -153,9 +153,83 @@ class ProcessedDataset(Base):
 
     # Relationships
     raw_dataset = relationship("RawDataset", back_populates="processed_datasets")
+    preprocessed_documents = relationship("PreprocessedDocument", back_populates="processed_dataset", cascade="all, delete-orphan")
+    embedding_caches = relationship("EmbeddingCache", back_populates="processed_dataset", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<ProcessedDataset(id={self.id}, name='{self.name}', status='{self.processing_status}')>"
+
+
+# --- Preprocessed Document Models (for new preprocessing flow) ---
+class PreprocessedDocument(Base):
+    """
+    Stores cleaned documents (full text, not chunked).
+
+    This is the output of preprocessing when we stop at cleaning.
+    Chunking and embedding happen later during evaluation.
+    """
+    __tablename__ = "preprocessed_documents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    processed_dataset_id = Column(Integer, ForeignKey("processed_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    raw_file_id = Column(Integer, ForeignKey("raw_files.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Full cleaned document text (NOT chunked)
+    content = Column(Text, nullable=False)
+
+    # Source tracking
+    original_filename = Column(String(500), nullable=False)
+
+    # Metadata from cleaning/extraction (keywords, entities, summary, etc.)
+    metadata_json = Column(JSON, nullable=True, default=dict)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    processed_dataset = relationship("ProcessedDataset", back_populates="preprocessed_documents")
+    raw_file = relationship("RawFile")
+
+    def __repr__(self):
+        return f"<PreprocessedDocument(id={self.id}, dataset_id={self.processed_dataset_id}, filename='{self.original_filename}')>"
+
+
+class EmbeddingCache(Base):
+    """
+    Caches embedding collections for reuse across experiments.
+
+    Cache key is: preprocessed_dataset_id + chunk_config + embedder_model
+    If a matching cache exists, we reuse the vector store collection.
+    """
+    __tablename__ = "embedding_caches"
+    __table_args__ = (
+        UniqueConstraint("preprocessed_dataset_id", "config_hash", name="uq_embedding_cache_config"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    preprocessed_dataset_id = Column(Integer, ForeignKey("processed_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Configuration that was used to create this cache
+    config_hash = Column(String(64), nullable=False, index=True)  # SHA-256 of config
+    chunking_config = Column(JSON, nullable=False)  # {method, chunk_size, chunk_overlap}
+    embedder_model = Column(String(200), nullable=False)
+
+    # Vector store info
+    collection_name = Column(String(200), unique=True, nullable=False)
+    vector_backend = Column(String(50), nullable=False, default="pgvector")
+
+    # Stats
+    chunk_count = Column(Integer, nullable=False, default=0)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    processed_dataset = relationship("ProcessedDataset", back_populates="embedding_caches")
+
+    def __repr__(self):
+        return f"<EmbeddingCache(id={self.id}, dataset_id={self.preprocessed_dataset_id}, embedder='{self.embedder_model}')>"
 
 
 class LLMExtractedMetadata(Base):

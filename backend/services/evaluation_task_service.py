@@ -70,16 +70,24 @@ class EvaluationTaskService:
     async def create_task(
         self,
         eval_dataset_id: Optional[str],
-        collection_name: str,
+        collection_name: Optional[str] = None,
         use_rag: bool = True,
         use_colbert: bool = True,
         top_k: int = 5,
         temperature: float = 0.1,
         embedder: str = "sentence-transformers/all-MiniLM-L6-v2",
         experiment_name: Optional[str] = None,
+        # New flow: preprocessed dataset with on-demand chunking/embedding
+        preprocessed_dataset_id: Optional[int] = None,
+        preset: Optional[str] = None,
+        chunking: Optional[dict] = None,
     ) -> str:
         """
         Create a new evaluation task and start it in the background.
+
+        Supports two modes:
+        1. Legacy mode: collection_name provided (use existing indexed collection)
+        2. New mode: preprocessed_dataset_id + chunking config (on-demand embedding)
 
         Returns:
             Task ID for tracking progress
@@ -101,6 +109,9 @@ class EvaluationTaskService:
         # Use custom experiment name if provided, otherwise fall back to dataset name
         display_name = experiment_name if experiment_name else dataset_name
 
+        # Determine display name for collection
+        collection_display = collection_name if collection_name else f"preprocessed_{preprocessed_dataset_id}"
+
         # Create task record in database
         config = {
             "experiment_name": experiment_name,
@@ -111,6 +122,10 @@ class EvaluationTaskService:
             "top_k": top_k,
             "temperature": temperature,
             "embedder": embedder,
+            # New flow parameters
+            "preprocessed_dataset_id": preprocessed_dataset_id,
+            "preset": preset,
+            "chunking": chunking,
         }
 
         with self.get_session() as session:
@@ -122,7 +137,7 @@ class EvaluationTaskService:
                 total_pairs=total_pairs,
                 current_step="Initializing...",
                 eval_dataset_name=display_name,
-                collection_display_name=collection_name,
+                collection_display_name=collection_display,
             )
             session.add(task)
             session.commit()
@@ -214,12 +229,16 @@ class EvaluationTaskService:
             config = task_dict["config"]
             experiment_name = config.get("experiment_name")
             eval_dataset_id = config.get("eval_dataset_id")
-            collection_name = config["collection_name"]
+            collection_name = config.get("collection_name")
             use_rag = config.get("use_rag", True)
             use_colbert = config.get("use_colbert", True)
             top_k = config.get("top_k", 5)
             temperature = config.get("temperature", 0.1)
             embedder = config.get("embedder", "sentence-transformers/all-MiniLM-L6-v2")
+
+            # New flow parameters
+            preprocessed_dataset_id = config.get("preprocessed_dataset_id")
+            chunking_config = config.get("chunking")
 
             # Update status to running
             self._update_task_progress(
@@ -227,6 +246,68 @@ class EvaluationTaskService:
                 status=EvaluationTaskStatus.RUNNING.value,
                 current_step="Loading dataset...",
             )
+
+            # Handle new flow: preprocessed dataset with on-demand embedding
+            # Only use new flow if dataset actually has preprocessed documents
+            if preprocessed_dataset_id and chunking_config:
+                from services.embedding_service import embedding_service
+                from schemas.evaluation import ChunkingConfig
+                from database_models import PreprocessedDocument, ProcessedDataset
+                from sqlalchemy import func
+
+                # Check if dataset has preprocessed documents (new flow)
+                with self.get_session() as session:
+                    preprocessed_count = session.query(func.count(PreprocessedDocument.id)).filter(
+                        PreprocessedDocument.processed_dataset_id == preprocessed_dataset_id
+                    ).scalar()
+
+                    if preprocessed_count > 0:
+                        # New flow: dataset has preprocessed documents, use on-demand embedding
+                        self._update_task_progress(
+                            task_id,
+                            current_step="Preparing vector index (chunking & embedding)...",
+                        )
+
+                        # Build ChunkingConfig from dict
+                        chunking = ChunkingConfig(
+                            method=chunking_config.get("method", "recursive"),
+                            chunk_size=chunking_config.get("chunk_size", 1000),
+                            chunk_overlap=chunking_config.get("chunk_overlap", 200),
+                        )
+
+                        # Get or create collection (with caching)
+                        collection_name, was_cached = await embedding_service.get_or_create_collection(
+                            db=session,
+                            preprocessed_dataset_id=preprocessed_dataset_id,
+                            chunking_config=chunking,
+                            embedder_model=embedder,
+                            vector_backend="pgvector",
+                        )
+
+                        cache_msg = "using cached index" if was_cached else "created new index"
+                        logger.info(f"Using collection '{collection_name}' ({cache_msg}) for evaluation")
+                        self._update_task_progress(
+                            task_id,
+                            current_step=f"Index ready ({cache_msg}). Loading Q&A pairs...",
+                        )
+                    else:
+                        # Legacy flow: dataset was processed with direct indexing
+                        # Get collection name from ProcessedDataset table
+                        processed_ds = session.query(ProcessedDataset).filter(
+                            ProcessedDataset.id == preprocessed_dataset_id
+                        ).first()
+
+                        if processed_ds and processed_ds.collection_name:
+                            collection_name = processed_ds.collection_name
+                            logger.info(
+                                f"Dataset {preprocessed_dataset_id} has no preprocessed documents, "
+                                f"using legacy collection '{collection_name}'"
+                            )
+                        else:
+                            raise ValueError(
+                                f"Dataset {preprocessed_dataset_id} has no preprocessed documents and no collection. "
+                                "Please re-process the dataset."
+                            )
 
             # Load pairs
             if eval_dataset_id:

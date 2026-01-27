@@ -20,6 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../../ui/collapsible";
 import { Badge } from "../../ui/badge";
 import { Separator } from "../../ui/separator";
 import {
@@ -29,8 +34,54 @@ import {
   FlaskConical,
   AlertCircle,
   Settings2,
+  Zap,
+  Settings,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+  HardDrive,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
+
+// Experiment presets - match backend EXPERIMENT_PRESETS
+const EXPERIMENT_PRESETS = {
+  quick: {
+    name: "Quick Test",
+    description: "Fast iteration, basic settings",
+    icon: Zap,
+    config: {
+      chunking: { method: "recursive", chunkSize: 500, chunkOverlap: 50 },
+      embedder: "sentence-transformers/all-MiniLM-L6-v2",
+      topK: 3,
+      reranker: "none",
+      temperature: 0.1,
+    },
+  },
+  balanced: {
+    name: "Balanced",
+    description: "Good quality, reasonable speed",
+    icon: Settings,
+    config: {
+      chunking: { method: "recursive", chunkSize: 1000, chunkOverlap: 200 },
+      embedder: "sentence-transformers/all-MiniLM-L6-v2",
+      topK: 5,
+      reranker: "none",
+      temperature: 0.1,
+    },
+  },
+  high_quality: {
+    name: "High Quality",
+    description: "Best accuracy, slower",
+    icon: Sparkles,
+    config: {
+      chunking: { method: "recursive", chunkSize: 1500, chunkOverlap: 300 },
+      embedder: "BAAI/bge-small-en-v1.5",
+      topK: 7,
+      reranker: "colbert",
+      temperature: 0.1,
+    },
+  },
+};
 
 // Available embedding models
 const AVAILABLE_EMBEDDERS = [
@@ -41,21 +92,48 @@ const AVAILABLE_EMBEDDERS = [
   { value: "nomic-ai/nomic-embed-text-v1", label: "nomic-embed-text-v1", description: "Nomic, Long context (768d)" },
 ];
 
+// Chunking methods
+const CHUNKING_METHODS = [
+  { value: "recursive", label: "Recursive", description: "Natural boundaries" },
+  { value: "fixed", label: "Fixed Size", description: "Uniform chunks" },
+  { value: "semantic", label: "Semantic", description: "Meaning-based splits" },
+];
+
 export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation }) {
-  // Collections state
+  // Legacy collections state (for backward compatibility)
   const [collections, setCollections] = useState([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
+
+  // New: Preprocessed datasets state (for new flow)
+  const [preprocessedDatasets, setPreprocessedDatasets] = useState([]);
+  const [preprocessedLoading, setPreprocessedLoading] = useState(false);
 
   // Evaluation datasets state
   const [evalDatasets, setEvalDatasets] = useState([]);
 
-  // Configuration state
+  // Data source mode: "preprocessed" (new) or "collection" (legacy)
+  const [dataSourceMode, setDataSourceMode] = useState("preprocessed");
+
+  // Selected preset
+  const [selectedPreset, setSelectedPreset] = useState("balanced");
+
+  // Show advanced options
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Configuration state - now includes chunking
   const [config, setConfig] = useState({
+    // Data source
     collection: "",
+    preprocessedDatasetId: null,
+    // Chunking (for new flow)
+    chunkingMethod: "recursive",
+    chunkSize: 1000,
+    chunkOverlap: 200,
+    // RAG settings
     enableRag: true,
     embedder: "sentence-transformers/all-MiniLM-L6-v2",
-    reranker: "colbert",
-    enableReranking: true,
+    reranker: "none",
+    enableReranking: false,
     topK: 5,
     temperature: 0.1,
   });
@@ -64,15 +142,39 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
   const [experimentName, setExperimentName] = useState("");
   const [isStarting, setIsStarting] = useState(false);
 
+  // Cache info for the current configuration
+  const [cacheInfo, setCacheInfo] = useState(null);
+
   // Fetch collections and datasets when modal opens, reset form
   useEffect(() => {
     if (open) {
       fetchCollections();
+      fetchPreprocessedDatasets();
       fetchEvalDatasets();
-      // Reset experiment name when modal opens
+      // Reset experiment name and apply default preset when modal opens
       setExperimentName("");
+      applyPreset("balanced");
     }
   }, [open]);
+
+  // Apply preset configuration
+  const applyPreset = (presetKey) => {
+    const preset = EXPERIMENT_PRESETS[presetKey];
+    if (!preset) return;
+
+    setSelectedPreset(presetKey);
+    setConfig((prev) => ({
+      ...prev,
+      chunkingMethod: preset.config.chunking.method,
+      chunkSize: preset.config.chunking.chunkSize,
+      chunkOverlap: preset.config.chunking.chunkOverlap,
+      embedder: preset.config.embedder,
+      topK: preset.config.topK,
+      reranker: preset.config.reranker,
+      enableReranking: preset.config.reranker === "colbert",
+      temperature: preset.config.temperature,
+    }));
+  };
 
   const fetchCollections = async () => {
     setCollectionsLoading(true);
@@ -81,16 +183,43 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
       if (response.ok) {
         const data = await response.json();
         const datasets = data.datasets || [];
-        const completed = datasets.filter(d => d.processing_status === "completed");
-        setCollections(completed);
-        if (completed.length > 0 && !config.collection) {
-          setConfig(prev => ({ ...prev, collection: completed[0].collection_name }));
+        // Legacy collections: have chunking config and collection_name
+        const legacyCollections = datasets.filter(
+          (d) => d.processing_status === "completed" && d.collection_name
+        );
+        setCollections(legacyCollections);
+        if (legacyCollections.length > 0 && !config.collection) {
+          setConfig((prev) => ({ ...prev, collection: legacyCollections[0].collection_name }));
         }
       }
     } catch (err) {
       console.error("Failed to fetch collections:", err);
     } finally {
       setCollectionsLoading(false);
+    }
+  };
+
+  const fetchPreprocessedDatasets = async () => {
+    setPreprocessedLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/processed-datasets`);
+      if (response.ok) {
+        const data = await response.json();
+        const datasets = data.datasets || [];
+        // New flow: preprocessed datasets without collection_name (chunking happens at eval time)
+        // Also include completed ones that could have preprocessed documents
+        const preprocessed = datasets.filter(
+          (d) => d.processing_status === "completed"
+        );
+        setPreprocessedDatasets(preprocessed);
+        if (preprocessed.length > 0 && !config.preprocessedDatasetId) {
+          setConfig((prev) => ({ ...prev, preprocessedDatasetId: preprocessed[0].id }));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch preprocessed datasets:", err);
+    } finally {
+      setPreprocessedLoading(false);
     }
   };
 
@@ -107,27 +236,55 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
   };
 
   const getSelectedCollection = () => {
-    return collections.find(c => c.collection_name === config.collection);
+    return collections.find((c) => c.collection_name === config.collection);
+  };
+
+  const getSelectedPreprocessedDataset = () => {
+    return preprocessedDatasets.find((d) => d.id === config.preprocessedDatasetId);
   };
 
   const handleStart = async () => {
-    if (!config.collection) return;
+    // Validate based on mode
+    if (dataSourceMode === "collection" && !config.collection) {
+      alert("Please select a collection");
+      return;
+    }
+    if (dataSourceMode === "preprocessed" && !config.preprocessedDatasetId) {
+      alert("Please select a preprocessed dataset");
+      return;
+    }
 
     setIsStarting(true);
     try {
+      // Build request body based on mode
+      const requestBody = {
+        experiment_name: experimentName.trim() || null,
+        eval_dataset_id: selectedEvalDataset === "none" ? null : selectedEvalDataset,
+        use_rag: config.enableRag,
+        embedder: config.embedder,
+        use_colbert: config.reranker === "colbert" && config.enableReranking,
+        top_k: config.topK,
+        temperature: config.temperature,
+      };
+
+      if (dataSourceMode === "collection") {
+        // Legacy mode: use existing collection
+        requestBody.collection_name = config.collection;
+      } else {
+        // New mode: use preprocessed dataset + chunking config
+        requestBody.preprocessed_dataset_id = config.preprocessedDatasetId;
+        requestBody.preset = selectedPreset;
+        requestBody.chunking = {
+          method: config.chunkingMethod,
+          chunk_size: config.chunkSize,
+          chunk_overlap: config.chunkOverlap,
+        };
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/evaluation/tasks/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          experiment_name: experimentName.trim() || null,
-          eval_dataset_id: selectedEvalDataset === "none" ? null : selectedEvalDataset,
-          collection_name: config.collection,
-          use_rag: config.enableRag,
-          embedder: config.embedder,
-          use_colbert: config.reranker === "colbert" && config.enableReranking,
-          top_k: config.topK,
-          temperature: config.temperature,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (response.ok) {
@@ -149,7 +306,14 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
   };
 
   const selectedCollection = getSelectedCollection();
-  const selectedDataset = evalDatasets.find(d => d.id === selectedEvalDataset);
+  const selectedPreprocessedDataset = getSelectedPreprocessedDataset();
+  const selectedDataset = evalDatasets.find((d) => d.id === selectedEvalDataset);
+
+  // Check if start button should be disabled
+  const isStartDisabled =
+    isStarting ||
+    (dataSourceMode === "collection" && !config.collection) ||
+    (dataSourceMode === "preprocessed" && !config.preprocessedDatasetId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -185,20 +349,159 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
 
           <Separator />
 
-          {/* Dataset Selection */}
+          {/* Experiment Presets */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Experiment Preset</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(EXPERIMENT_PRESETS).map(([key, preset]) => {
+                const Icon = preset.icon;
+                return (
+                  <Button
+                    key={key}
+                    variant={selectedPreset === key ? "default" : "outline"}
+                    className="h-auto py-2 flex flex-col items-center gap-1"
+                    onClick={() => applyPreset(key)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="text-xs font-medium">{preset.name}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {preset.description}
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Data Source Mode Toggle */}
           <div className="space-y-3">
             <Label className="text-sm font-medium flex items-center gap-2">
               <Database className="h-4 w-4" />
-              Evaluation Dataset
+              Data Source
+            </Label>
+            <div className="flex gap-2">
+              <Button
+                variant={dataSourceMode === "preprocessed" ? "default" : "outline"}
+                size="sm"
+                className="flex-1"
+                onClick={() => setDataSourceMode("preprocessed")}
+              >
+                <HardDrive className="h-4 w-4 mr-1" />
+                Preprocessed Dataset
+              </Button>
+              <Button
+                variant={dataSourceMode === "collection" ? "default" : "outline"}
+                size="sm"
+                className="flex-1"
+                onClick={() => setDataSourceMode("collection")}
+              >
+                <Database className="h-4 w-4 mr-1" />
+                Existing Collection
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {dataSourceMode === "preprocessed"
+                ? "Use cleaned data with customizable chunking/embedding (recommended)"
+                : "Use a pre-indexed collection (legacy mode)"}
+            </p>
+          </div>
+
+          {/* Preprocessed Dataset Selection (new mode) */}
+          {dataSourceMode === "preprocessed" && (
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Preprocessed Dataset</Label>
+              <Select
+                value={config.preprocessedDatasetId?.toString() || ""}
+                onValueChange={(v) =>
+                  setConfig((prev) => ({ ...prev, preprocessedDatasetId: parseInt(v) }))
+                }
+                disabled={preprocessedLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={preprocessedLoading ? "Loading..." : "Select dataset..."}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {preprocessedDatasets.map((ds) => (
+                    <SelectItem key={ds.id} value={ds.id.toString()}>
+                      <div className="flex items-center gap-2">
+                        <span>{ds.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {ds.document_count || 0} docs
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedPreprocessedDataset && (
+                <p className="text-xs text-muted-foreground">
+                  {selectedPreprocessedDataset.document_count || 0} cleaned documents ready
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Collection Selection (legacy mode) */}
+          {dataSourceMode === "collection" && (
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Document Collection</Label>
+              <Select
+                value={config.collection}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, collection: v }))}
+                disabled={collectionsLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={collectionsLoading ? "Loading..." : "Select collection..."}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {collections.map((col) => (
+                    <SelectItem key={col.collection_name} value={col.collection_name}>
+                      <div className="flex items-center gap-2">
+                        <span>{col.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {col.chunk_count} chunks
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {col.vector_backend}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedCollection && (
+                <p className="text-xs text-muted-foreground">
+                  Embedder: {selectedCollection.embedder_model_name?.split("/").pop()}
+                </p>
+              )}
+            </div>
+          )}
+
+          <Separator />
+
+          {/* Evaluation Dataset Selection */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <FlaskConical className="h-4 w-4" />
+              Q&A Evaluation Dataset
             </Label>
             <Select
               value={selectedEvalDataset}
               onValueChange={(value) => {
                 setSelectedEvalDataset(value);
                 // Auto-select the matching collection if dataset has source_collection
-                const dataset = evalDatasets.find(d => d.id === value);
-                if (dataset?.source_collection && collections.some(c => c.collection_name === dataset.source_collection)) {
-                  setConfig(prev => ({ ...prev, collection: dataset.source_collection }));
+                const dataset = evalDatasets.find((d) => d.id === value);
+                if (
+                  dataset?.source_collection &&
+                  collections.some((c) => c.collection_name === dataset.source_collection)
+                ) {
+                  setConfig((prev) => ({ ...prev, collection: dataset.source_collection }));
                 }
               }}
             >
@@ -209,7 +512,9 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
                 <SelectItem value="none">
                   <div className="flex items-center gap-2">
                     <span>Quick Test (1 question)</span>
-                    <Badge variant="secondary" className="text-xs">Fast</Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      Fast
+                    </Badge>
                   </div>
                 </SelectItem>
                 {evalDatasets.map((dataset) => (
@@ -219,11 +524,6 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
                       <Badge variant="outline" className="text-xs">
                         {dataset.pair_count} pairs
                       </Badge>
-                      {dataset.source_collection && (
-                        <Badge variant="secondary" className="text-xs font-mono">
-                          {dataset.source_collection.split("_").slice(-2).join("_")}
-                        </Badge>
-                      )}
                     </div>
                   </SelectItem>
                 ))}
@@ -232,54 +532,6 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
             {selectedDataset && (
               <p className="text-xs text-muted-foreground">
                 {selectedDataset.pair_count} Q&A pairs
-                {selectedDataset.source_collection && (
-                  <span> • Generated from: <span className="font-mono">{selectedDataset.source_collection}</span></span>
-                )}
-              </p>
-            )}
-            {/* Warning if dataset and collection don't match */}
-            {selectedDataset?.source_collection && config.collection && selectedDataset.source_collection !== config.collection && (
-              <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 rounded text-xs text-yellow-800 dark:text-yellow-200">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                <span>
-                  Warning: Dataset was generated from "{selectedDataset.source_collection}" but you selected "{config.collection}". Results may not be meaningful.
-                </span>
-              </div>
-            )}
-          </div>
-
-          <Separator />
-
-          {/* Collection Selection */}
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Document Collection</Label>
-            <Select
-              value={config.collection}
-              onValueChange={(v) => setConfig(prev => ({ ...prev, collection: v }))}
-              disabled={collectionsLoading}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={collectionsLoading ? "Loading..." : "Select collection..."} />
-              </SelectTrigger>
-              <SelectContent>
-                {collections.map((col) => (
-                  <SelectItem key={col.collection_name} value={col.collection_name}>
-                    <div className="flex items-center gap-2">
-                      <span>{col.name}</span>
-                      <Badge variant="outline" className="text-xs">
-                        {col.chunk_count} chunks
-                      </Badge>
-                      <Badge variant="secondary" className="text-xs">
-                        {col.vector_backend}
-                      </Badge>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedCollection && (
-              <p className="text-xs text-muted-foreground">
-                Embedder: {selectedCollection.embedder_model_name?.split("/").pop()}
               </p>
             )}
           </div>
@@ -302,7 +554,9 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
                 </div>
                 <Switch
                   checked={config.enableRag}
-                  onCheckedChange={(v) => setConfig(prev => ({ ...prev, enableRag: v }))}
+                  onCheckedChange={(v) =>
+                    setConfig((prev) => ({ ...prev, enableRag: v }))
+                  }
                 />
               </div>
 
@@ -314,7 +568,9 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
                 </div>
                 <Switch
                   checked={config.enableReranking}
-                  onCheckedChange={(v) => setConfig(prev => ({ ...prev, enableReranking: v }))}
+                  onCheckedChange={(v) =>
+                    setConfig((prev) => ({ ...prev, enableReranking: v, reranker: v ? "colbert" : "none" }))
+                  }
                   disabled={!config.enableRag}
                 />
               </div>
@@ -328,7 +584,7 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
               </div>
               <Slider
                 value={[config.topK]}
-                onValueChange={([v]) => setConfig(prev => ({ ...prev, topK: v }))}
+                onValueChange={([v]) => setConfig((prev) => ({ ...prev, topK: v }))}
                 min={1}
                 max={20}
                 step={1}
@@ -340,47 +596,144 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
             <div className="space-y-2">
               <div className="flex justify-between">
                 <Label className="text-sm">Temperature</Label>
-                <span className="text-sm text-muted-foreground">{config.temperature.toFixed(2)}</span>
+                <span className="text-sm text-muted-foreground">
+                  {config.temperature.toFixed(2)}
+                </span>
               </div>
               <Slider
                 value={[config.temperature]}
-                onValueChange={([v]) => setConfig(prev => ({ ...prev, temperature: v }))}
+                onValueChange={([v]) =>
+                  setConfig((prev) => ({ ...prev, temperature: v }))
+                }
                 min={0}
                 max={1}
                 step={0.05}
               />
             </div>
-
-            {/* Embedder Selection */}
-            <div className="space-y-2">
-              <Label className="text-sm">Embedder Model</Label>
-              <Select
-                value={config.embedder}
-                onValueChange={(v) => setConfig(prev => ({ ...prev, embedder: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {AVAILABLE_EMBEDDERS.map((emb) => (
-                    <SelectItem key={emb.value} value={emb.value}>
-                      <div className="flex items-center gap-2">
-                        <span>{emb.label}</span>
-                        <span className="text-xs text-muted-foreground">({emb.description})</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
+
+          <Separator />
+
+          {/* Advanced Options (Collapsible) */}
+          <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between p-2">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <Settings2 className="h-4 w-4" />
+                  Advanced Options
+                </span>
+                {showAdvanced ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-4 pt-2">
+              {/* Embedder Selection */}
+              <div className="space-y-2">
+                <Label className="text-sm">Embedder Model</Label>
+                <Select
+                  value={config.embedder}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, embedder: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AVAILABLE_EMBEDDERS.map((emb) => (
+                      <SelectItem key={emb.value} value={emb.value}>
+                        <div className="flex items-center gap-2">
+                          <span>{emb.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            ({emb.description})
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Chunking Configuration (only for preprocessed mode) */}
+              {dataSourceMode === "preprocessed" && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-sm">Chunking Method</Label>
+                    <Select
+                      value={config.chunkingMethod}
+                      onValueChange={(v) =>
+                        setConfig((prev) => ({ ...prev, chunkingMethod: v }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CHUNKING_METHODS.map((method) => (
+                          <SelectItem key={method.value} value={method.value}>
+                            <div className="flex items-center gap-2">
+                              <span>{method.label}</span>
+                              <span className="text-xs text-muted-foreground">
+                                ({method.description})
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Chunk Size */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label className="text-sm">Chunk Size</Label>
+                        <span className="text-sm text-muted-foreground">
+                          {config.chunkSize}
+                        </span>
+                      </div>
+                      <Slider
+                        value={[config.chunkSize]}
+                        onValueChange={([v]) =>
+                          setConfig((prev) => ({ ...prev, chunkSize: v }))
+                        }
+                        min={200}
+                        max={4000}
+                        step={100}
+                      />
+                    </div>
+
+                    {/* Chunk Overlap */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label className="text-sm">Chunk Overlap</Label>
+                        <span className="text-sm text-muted-foreground">
+                          {config.chunkOverlap}
+                        </span>
+                      </div>
+                      <Slider
+                        value={[config.chunkOverlap]}
+                        onValueChange={([v]) =>
+                          setConfig((prev) => ({ ...prev, chunkOverlap: v }))
+                        }
+                        min={0}
+                        max={config.chunkSize - 100}
+                        step={50}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleStart} disabled={isStarting || !config.collection}>
+          <Button onClick={handleStart} disabled={isStartDisabled}>
             {isStarting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

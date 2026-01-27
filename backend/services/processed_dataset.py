@@ -347,12 +347,77 @@ class ProcessedDatasetService:
         collection_name = dataset.collection_name
         vector_backend = dataset.vector_backend
 
+        # First try to get chunks from vector store (legacy flow)
+        result = {"chunks": [], "total": 0}
         if vector_backend == "pgvector":
-            return self._get_chunks_pgvector(collection_name, page, limit, search)
+            result = self._get_chunks_pgvector(collection_name, page, limit, search)
         elif vector_backend == "qdrant":
-            return self._get_chunks_qdrant(collection_name, page, limit, search)
-        else:
-            logger.warning(f"Unknown vector backend: {vector_backend}")
+            result = self._get_chunks_qdrant(collection_name, page, limit, search)
+
+        # If no chunks found, check for preprocessed documents (new flow)
+        if result["total"] == 0:
+            preprocessed_result = self._get_preprocessed_documents(
+                db, dataset_id, page, limit, search
+            )
+            if preprocessed_result["total"] > 0:
+                return preprocessed_result
+
+        return result
+
+    def _get_preprocessed_documents(
+        self,
+        db: Session,
+        dataset_id: int,
+        page: int,
+        limit: int,
+        search: Optional[str] = None,
+    ) -> dict:
+        """
+        Fetch preprocessed documents for new-flow datasets.
+
+        These are full documents (not chunked) saved during preprocessing
+        when chunking is deferred to evaluation time.
+        """
+        from database_models import PreprocessedDocument
+        from sqlalchemy import func
+
+        try:
+            offset = (page - 1) * limit
+
+            # Build base query
+            query = db.query(PreprocessedDocument).filter(
+                PreprocessedDocument.processed_dataset_id == dataset_id
+            )
+
+            # Apply search filter if provided
+            if search:
+                query = query.filter(
+                    PreprocessedDocument.content.ilike(f"%{search}%")
+                )
+
+            # Get total count
+            total = query.count()
+
+            # Get paginated results
+            docs = query.order_by(PreprocessedDocument.id).offset(offset).limit(limit).all()
+
+            chunks = []
+            for doc in docs:
+                chunks.append({
+                    "id": str(doc.id),
+                    "content": doc.content[:2000] if doc.content else "",  # Truncate for display
+                    "metadata": {
+                        "source": doc.original_filename,
+                        "type": "preprocessed_document",
+                        "full_length": len(doc.content) if doc.content else 0,
+                        **(doc.metadata_json or {}),
+                    },
+                })
+
+            return {"chunks": chunks, "total": total, "type": "preprocessed_documents"}
+
+        except Exception as e:
+            logger.error(f"Error fetching preprocessed documents: {e}")
             return {"chunks": [], "total": 0}
 
     def _get_chunks_pgvector(
@@ -571,16 +636,24 @@ class ProcessedDatasetService:
         This allows identifying datasets with the same processing config.
         """
         config = dataset.preprocessing_config or {}
-        chunking = config.get("chunking", {})
+        chunking = config.get("chunking") or {}  # Handle None explicitly
 
         # Create a deterministic string from key config values
-        config_str = (
-            f"raw:{dataset.raw_dataset_id}|"
-            f"emb:{dataset.embedder_model_name}|"
-            f"chunk:{chunking.get('method', 'recursive')}|"
-            f"size:{chunking.get('chunk_size', 1000)}|"
-            f"overlap:{chunking.get('chunk_overlap', 200)}"
-        )
+        # For new flow (chunking=None), use "deferred" to indicate chunking happens at eval time
+        if not chunking:
+            config_str = (
+                f"raw:{dataset.raw_dataset_id}|"
+                f"emb:{dataset.embedder_model_name or 'deferred'}|"
+                f"chunk:deferred"
+            )
+        else:
+            config_str = (
+                f"raw:{dataset.raw_dataset_id}|"
+                f"emb:{dataset.embedder_model_name}|"
+                f"chunk:{chunking.get('method', 'recursive')}|"
+                f"size:{chunking.get('chunk_size', 1000)}|"
+                f"overlap:{chunking.get('chunk_overlap', 200)}"
+            )
 
         # Generate short hash (first 8 chars of SHA256)
         return hashlib.sha256(config_str.encode()).hexdigest()[:8]

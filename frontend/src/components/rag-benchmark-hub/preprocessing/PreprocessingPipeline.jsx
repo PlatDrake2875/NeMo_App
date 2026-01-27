@@ -5,7 +5,6 @@ import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { ScrollArea } from "../../ui/scroll-area";
 import { Switch } from "../../ui/switch";
-import { Slider } from "../../ui/slider";
 import { Badge } from "../../ui/badge";
 import {
   Select,
@@ -45,7 +44,7 @@ import { cn } from "../../../lib/utils";
 import { API_BASE_URL } from "../../../lib/api-config";
 import { useTemplates } from "../../../hooks/useTemplates";
 
-// Configuration presets
+// Configuration presets - chunking/embedding now happens at evaluation time
 const PRESETS = {
   quick: {
     name: "Quick",
@@ -55,7 +54,6 @@ const PRESETS = {
       cleaning: { enabled: false },
       lightweightMetadata: { enabled: false },
       llmMetadata: { enabled: false },
-      chunking: { method: "recursive", chunkSize: 1000, chunkOverlap: 100 },
     },
   },
   standard: {
@@ -84,7 +82,6 @@ const PRESETS = {
         extractSpacyEntities: false,
       },
       llmMetadata: { enabled: false },
-      chunking: { method: "recursive", chunkSize: 1000, chunkOverlap: 200 },
     },
   },
   thorough: {
@@ -120,7 +117,6 @@ const PRESETS = {
         extractCategories: true,
         model: "meta-llama/Llama-3.2-3B-Instruct",
       },
-      chunking: { method: "semantic", chunkSize: 1500, chunkOverlap: 300 },
     },
   },
 };
@@ -149,13 +145,11 @@ const HELP_TEXTS = {
   extractSpacyEntities: "Extracts named entities using spaCy NER (slower but accurate)",
 };
 
-// Step indicator configuration
+// Step indicator configuration - chunking/embedding now at evaluation time
 const STEPS = [
   { id: "source", label: "Source", required: true },
   { id: "cleaning", label: "Cleaning", required: false },
   { id: "metadata", label: "Metadata", required: false },
-  { id: "chunking", label: "Chunking", required: true },
-  { id: "vector", label: "Vector", required: true },
   { id: "output", label: "Output", required: true },
 ];
 
@@ -268,14 +262,7 @@ export function PreprocessingPipeline({ onNavigate }) {
   const [extractCategories, setExtractCategories] = useState(true);
   const [llmModel, setLlmModel] = useState("meta-llama/Llama-3.2-3B-Instruct");
 
-  // Chunking configuration
-  const [chunkingMethod, setChunkingMethod] = useState("recursive");
-  const [chunkSize, setChunkSize] = useState(1000);
-  const [chunkOverlap, setChunkOverlap] = useState(200);
-
-  // Vector store configuration
-  const [vectorBackend, setVectorBackend] = useState("pgvector");
-  const [embedderModel, setEmbedderModel] = useState("all-MiniLM-L6-v2");
+  // Note: Chunking and embedding configuration moved to evaluation page
 
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -283,9 +270,6 @@ export function PreprocessingPipeline({ onNavigate }) {
   const [error, setError] = useState(null);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [createdDatasetName, setCreatedDatasetName] = useState("");
-
-  // Validation state
-  const [validationErrors, setValidationErrors] = useState({});
 
   // Selected preset
   const [selectedPreset, setSelectedPreset] = useState(null);
@@ -304,29 +288,12 @@ export function PreprocessingPipeline({ onNavigate }) {
   const [templateTags, setTemplateTags] = useState("");
   const fileInputRef = useState(null);
 
-  // Validate chunk overlap
-  useEffect(() => {
-    const errors = {};
-    if (chunkOverlap >= chunkSize) {
-      errors.chunkOverlap = "Overlap must be less than chunk size";
-    }
-    if (chunkOverlap < 0) {
-      errors.chunkOverlap = "Overlap cannot be negative";
-    }
-    if (chunkSize < 100) {
-      errors.chunkSize = "Chunk size must be at least 100";
-    }
-    setValidationErrors(errors);
-  }, [chunkSize, chunkOverlap]);
-
   // Calculate completed steps
   const completedSteps = useMemo(() => {
     const completed = [];
     if (selectedRawDatasetId) completed.push("source");
     if (cleaningEnabled) completed.push("cleaning");
     if (lightweightMetadataEnabled || metadataEnabled) completed.push("metadata");
-    // Chunking and vector are always "active" since they have defaults
-    completed.push("chunking", "vector");
     if (outputName.trim()) completed.push("output");
     return completed;
   }, [
@@ -403,11 +370,7 @@ export function PreprocessingPipeline({ onNavigate }) {
       setExtractCategories(config.llmMetadata.extractCategories ?? true);
       setLlmModel(config.llmMetadata.model ?? "meta-llama/Llama-3.2-3B-Instruct");
     }
-
-    // Apply chunking config
-    setChunkingMethod(config.chunking.method);
-    setChunkSize(config.chunking.chunkSize);
-    setChunkOverlap(config.chunking.chunkOverlap);
+    // Note: Chunking config moved to evaluation page
   };
 
   const resetForm = () => {
@@ -421,6 +384,7 @@ export function PreprocessingPipeline({ onNavigate }) {
   };
 
   // Get current configuration as a template object
+  // Note: Chunking config is no longer included - it's configured at evaluation time
   const getCurrentConfigAsTemplate = () => ({
     name: templateName || "My Template",
     description: templateDescription || null,
@@ -455,11 +419,6 @@ export function PreprocessingPipeline({ onNavigate }) {
         extract_entities: extractEntities,
         extract_categories: extractCategories,
       },
-      chunking: {
-        method: chunkingMethod,
-        chunk_size: chunkSize,
-        chunk_overlap: chunkOverlap,
-      },
     },
   });
 
@@ -483,8 +442,10 @@ export function PreprocessingPipeline({ onNavigate }) {
   const handleExportCurrentConfig = () => {
     const template = getCurrentConfigAsTemplate();
     template.name = "exported_config";
+    // Note: Chunking config is no longer included - it's configured at evaluation time
     const yamlContent = `# Exported Preprocessing Configuration
 # Generated: ${new Date().toISOString()}
+# Note: Chunking and embedding are now configured at evaluation time
 
 name: ${template.name}
 description: ${template.description || "Exported configuration"}
@@ -517,10 +478,6 @@ preprocessing:
     extract_keywords: ${template.preprocessing.llm_metadata.extract_keywords}
     extract_entities: ${template.preprocessing.llm_metadata.extract_entities}
     extract_categories: ${template.preprocessing.llm_metadata.extract_categories}
-  chunking:
-    method: ${template.preprocessing.chunking.method}
-    chunk_size: ${template.preprocessing.chunking.chunk_size}
-    chunk_overlap: ${template.preprocessing.chunking.chunk_overlap}
 `;
 
     const blob = new Blob([yamlContent], { type: "application/x-yaml" });
@@ -584,13 +541,7 @@ preprocessing:
             setExtractEntities(config.llmMetadata.extract_entities ?? true);
             setExtractCategories(config.llmMetadata.extract_categories ?? true);
           }
-
-          // Apply chunking
-          if (config.chunking) {
-            setChunkingMethod(config.chunking.method ?? "recursive");
-            setChunkSize(config.chunking.chunk_size ?? 1000);
-            setChunkOverlap(config.chunking.chunk_overlap ?? 200);
-          }
+          // Note: Chunking config from imported templates is ignored - it's configured at evaluation time
         }
       } catch (err) {
         setError(`Failed to import config: ${err.message}`);
@@ -607,17 +558,13 @@ preprocessing:
       return;
     }
 
-    if (Object.keys(validationErrors).length > 0) {
-      setError("Please fix validation errors before processing");
-      return;
-    }
-
     setIsProcessing(true);
     setError(null);
     setProcessingStatus({ step: "Creating dataset...", progress: 0 });
 
     try {
       // Create the processed dataset
+      // Note: chunking and embedding are now configured at evaluation time
       const response = await fetch(
         `${API_BASE_URL}/api/processed-datasets?start_processing=true`,
         {
@@ -627,11 +574,6 @@ preprocessing:
             name: outputName.trim(),
             description: outputDescription.trim() || null,
             raw_dataset_id: parseInt(selectedRawDatasetId),
-            embedder_config: {
-              model_name: embedderModel,
-              model_type: "huggingface",
-              model_kwargs: embedderModel.includes("nomic") ? { trust_remote_code: true } : {},
-            },
             preprocessing_config: {
               cleaning: {
                 enabled: cleaningEnabled,
@@ -661,20 +603,29 @@ preprocessing:
                 extract_entities: extractEntities,
                 extract_categories: extractCategories,
               },
-              chunking: {
-                method: chunkingMethod,
-                chunk_size: chunkSize,
-                chunk_overlap: chunkOverlap,
-              },
+              // chunking: null - deferred to evaluation time
             },
-            vector_backend: vectorBackend,
           }),
         }
       );
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.detail || "Failed to create dataset");
+        // Handle Pydantic validation errors (array) or simple error messages
+        let errorMessage = "Failed to create dataset";
+        if (errData.detail) {
+          if (Array.isArray(errData.detail)) {
+            // Pydantic validation errors
+            errorMessage = errData.detail
+              .map((e) => e.msg || e.message || JSON.stringify(e))
+              .join("; ");
+          } else if (typeof errData.detail === "string") {
+            errorMessage = errData.detail;
+          } else {
+            errorMessage = JSON.stringify(errData.detail);
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -704,8 +655,6 @@ preprocessing:
   const selectedDataset = rawDatasets.find(
     (ds) => ds.id.toString() === selectedRawDatasetId
   );
-
-  const hasValidationErrors = Object.keys(validationErrors).length > 0;
 
   return (
     <TooltipProvider>
@@ -1066,130 +1015,14 @@ preprocessing:
             )}
           </Card>
 
-          {/* Chunking (Required) */}
-          <Card>
-            <CardHeader className="py-3 flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">4. Chunking</CardTitle>
-              <Badge variant="default">Required</Badge>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Method</Label>
-                <Select value={chunkingMethod} onValueChange={setChunkingMethod}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="recursive">Recursive (natural boundaries)</SelectItem>
-                    <SelectItem value="fixed">Fixed Size</SelectItem>
-                    <SelectItem value="semantic">Semantic</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Chunk Size</Label>
-                    <Input
-                      type="number"
-                      value={chunkSize}
-                      onChange={(e) =>
-                        setChunkSize(
-                          Math.max(100, Math.min(8000, parseInt(e.target.value) || 100))
-                        )
-                      }
-                      className={cn(
-                        "w-20 h-7 text-xs text-right",
-                        validationErrors.chunkSize && "border-destructive"
-                      )}
-                      min={100}
-                      max={8000}
-                    />
-                  </div>
-                  <Slider
-                    value={[chunkSize]}
-                    onValueChange={([v]) => setChunkSize(v)}
-                    min={100}
-                    max={8000}
-                    step={50}
-                    className="py-1"
-                  />
-                  {validationErrors.chunkSize && (
-                    <p className="text-xs text-destructive">{validationErrors.chunkSize}</p>
-                  )}
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Overlap</Label>
-                    <Input
-                      type="number"
-                      value={chunkOverlap}
-                      onChange={(e) =>
-                        setChunkOverlap(
-                          Math.max(0, Math.min(2000, parseInt(e.target.value) || 0))
-                        )
-                      }
-                      className={cn(
-                        "w-20 h-7 text-xs text-right",
-                        validationErrors.chunkOverlap && "border-destructive"
-                      )}
-                      min={0}
-                      max={2000}
-                    />
-                  </div>
-                  <Slider
-                    value={[chunkOverlap]}
-                    onValueChange={([v]) => setChunkOverlap(v)}
-                    min={0}
-                    max={2000}
-                    step={10}
-                    className="py-1"
-                  />
-                  {validationErrors.chunkOverlap && (
-                    <p className="text-xs text-destructive">{validationErrors.chunkOverlap}</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Vector Database (Required) */}
-          <Card>
-            <CardHeader className="py-3 flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">5. Vector Database</CardTitle>
-              <Badge variant="default">Required</Badge>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Backend</Label>
-                  <Select value={vectorBackend} onValueChange={setVectorBackend}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pgvector">pgvector</SelectItem>
-                      <SelectItem value="qdrant">Qdrant</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs">Embedding Model</Label>
-                  <Select value={embedderModel} onValueChange={setEmbedderModel}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all-MiniLM-L6-v2">MiniLM-L6 (384d)</SelectItem>
-                      <SelectItem value="BAAI/bge-small-en-v1.5">BGE-small (384d)</SelectItem>
-                      <SelectItem value="nomic-ai/nomic-embed-text-v1">Nomic (768d)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+          {/* Info: Chunking & Embedding at Evaluation Time */}
+          <Card className="bg-muted/50 border-dashed">
+            <CardContent className="pt-4 pb-4">
+              <p className="text-sm text-muted-foreground">
+                <strong>Note:</strong> Chunking and embedding configuration has been moved to the
+                <strong> Evaluation</strong> page. This allows you to run multiple experiments with
+                different configurations on the same preprocessed dataset.
+              </p>
             </CardContent>
           </Card>
 
@@ -1238,8 +1071,7 @@ preprocessing:
             disabled={
               isProcessing ||
               !selectedRawDatasetId ||
-              !outputName.trim() ||
-              hasValidationErrors
+              !outputName.trim()
             }
           >
             {isProcessing ? (
