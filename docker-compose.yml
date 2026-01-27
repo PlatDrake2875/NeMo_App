@@ -43,10 +43,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 40s
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
     # GPU access for ColBERT reranking (optional - falls back to CPU if unavailable)
     deploy:
       resources:
