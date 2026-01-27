@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import {
   Loader2,
@@ -232,6 +232,7 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const tasksRef = useRef(tasks);
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -263,19 +264,24 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
     setLoading(false);
   }, [fetchTasks, fetchRuns]);
 
+  // Keep ref in sync with tasks state
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
   // Initial fetch and auto-refresh for running tasks
   useEffect(() => {
     fetchAll();
 
     const interval = setInterval(() => {
-      const hasActive = tasks.some(t => t.status === "running" || t.status === "pending");
+      const hasActive = tasksRef.current.some(t => t.status === "running" || t.status === "pending");
       if (hasActive) {
         fetchTasks();
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [fetchAll, fetchTasks, tasks]);
+  }, [fetchAll, fetchTasks]);
 
   const handleCancel = async (taskId) => {
     try {

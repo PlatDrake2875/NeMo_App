@@ -21,10 +21,7 @@ import {
   ChevronDown,
   ChevronRight,
   FlaskConical,
-  RefreshCw,
-  Trash2,
   Download,
-  History,
   ArrowLeft,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
@@ -36,9 +33,7 @@ export function EvaluationPage() {
   const [results, setResults] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
 
-  // Evaluation history state
-  const [evaluationRuns, setEvaluationRuns] = useState([]);
-  const [runsLoading, setRunsLoading] = useState(false);
+  // Current run state
   const [currentRunId, setCurrentRunId] = useState(null);
 
   // Background task state
@@ -81,27 +76,6 @@ export function EvaluationPage() {
     return () => clearInterval(interval);
   }, [activeTasks.length]);
 
-  // Fetch evaluation runs on mount
-  useEffect(() => {
-    fetchEvaluationRuns();
-  }, []);
-
-  // Fetch past evaluation runs
-  const fetchEvaluationRuns = async () => {
-    setRunsLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs`);
-      if (response.ok) {
-        const data = await response.json();
-        setEvaluationRuns(data);
-      }
-    } catch (err) {
-      console.error("Error fetching evaluation runs:", err);
-    } finally {
-      setRunsLoading(false);
-    }
-  };
-
   // Load a past evaluation run
   const loadEvaluationRun = async (runId) => {
     try {
@@ -125,26 +99,6 @@ export function EvaluationPage() {
   // Export evaluation run as CSV
   const exportRunAsCSV = (runId) => {
     window.open(`${API_BASE_URL}/api/evaluation/runs/${runId}/csv`, "_blank");
-  };
-
-  // Delete an evaluation run
-  const deleteEvaluationRun = async (runId) => {
-    if (!confirm("Are you sure you want to delete this evaluation run?")) return;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        fetchEvaluationRuns();
-        if (currentRunId === runId) {
-          setResults(null);
-          setCurrentRunId(null);
-        }
-      }
-    } catch (err) {
-      console.error("Error deleting evaluation run:", err);
-    }
   };
 
   // Toggle row expansion
@@ -202,8 +156,17 @@ export function EvaluationPage() {
             onNewEvaluation={() => setShowConfigModal(true)}
           />
         </div>
-      ) : (
-        /* Results View */
+      ) : null}
+
+      {/* New Evaluation Modal */}
+      <EvaluationConfigModal
+        open={showConfigModal}
+        onOpenChange={setShowConfigModal}
+        onStartEvaluation={handleStartEvaluation}
+      />
+
+      {/* Results Section - Only shown in results view mode */}
+      {viewMode === "results" && results && (
         <div className="space-y-6">
           {/* Back to Jobs button */}
           <Button
@@ -218,107 +181,6 @@ export function EvaluationPage() {
             Back to Jobs
           </Button>
 
-          {/* Evaluation History - Compact view when in results mode */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <History className="h-5 w-5" />
-                  <CardTitle className="text-lg">Evaluation History</CardTitle>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={fetchEvaluationRuns}
-                  disabled={runsLoading}
-                >
-                  <RefreshCw className={`h-4 w-4 mr-1 ${runsLoading ? "animate-spin" : ""}`} />
-                  Refresh
-                </Button>
-              </div>
-              <CardDescription>
-                Select an evaluation run to view detailed results
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {evaluationRuns.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No evaluation runs yet.
-                </p>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {evaluationRuns.map((run) => (
-                    <div
-                      key={run.id}
-                      className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
-                        currentRunId === run.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
-                      }`}
-                      onClick={() => loadEvaluationRun(run.id)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium truncate">{run.name}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {run.pair_count} pairs
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          <span>{new Date(run.created_at).toLocaleString()}</span>
-                          {run.config?.llm_model && (
-                            <span className="font-mono">{run.config.llm_model.split("/").pop()}</span>
-                          )}
-                          {run.metrics && (
-                            <>
-                              <span>Correctness: {((run.metrics.answer_correctness || 0) * 100).toFixed(0)}%</span>
-                              <span>Faithful: {((run.metrics.faithfulness || 0) * 100).toFixed(0)}%</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 ml-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            exportRunAsCSV(run.id);
-                          }}
-                          title="Export as CSV"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteEvaluationRun(run.id);
-                          }}
-                          title="Delete"
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* New Evaluation Modal */}
-      <EvaluationConfigModal
-        open={showConfigModal}
-        onOpenChange={setShowConfigModal}
-        onStartEvaluation={handleStartEvaluation}
-      />
-
-      {/* Results Section - Only shown in results view mode */}
-      {viewMode === "results" && results && (
-        <div className="space-y-6">
           <Separator />
 
           {/* Metrics Summary */}
