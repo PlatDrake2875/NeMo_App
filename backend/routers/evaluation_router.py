@@ -839,6 +839,381 @@ async def import_pdf_upload(
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {e}")
 
 
+@router.post("/import/pdf-as-raw")
+async def import_pdf_as_raw(
+    dataset_id: str,
+    custom_name: Optional[str] = None,
+):
+    """
+    Import a bundled PDF as a raw dataset (no Q&A generation).
+
+    This creates a raw dataset that can then be:
+    1. Preprocessed (chunking, embeddings)
+    2. Used to generate Q&A pairs from the processed content
+
+    Args:
+        dataset_id: ID of the pre-configured PDF dataset
+        custom_name: Optional custom name for the dataset
+
+    Returns:
+        Created raw dataset info
+    """
+    # Find the dataset config
+    dataset_config = next((d for d in PDF_DATASETS if d["id"] == dataset_id), None)
+    if not dataset_config:
+        raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+    local_file = dataset_config.get("local_file")
+    if not local_file:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset {dataset_id} does not have a bundled file."
+        )
+
+    local_path = BUNDLED_PDFS_DIR / local_file
+    if not local_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Bundled PDF not found: {local_file}. Please ensure the file exists in data/eval_pdfs/"
+        )
+
+    dataset_name = custom_name or dataset_config["name"]
+
+    try:
+        # Read PDF content
+        pdf_content = local_path.read_bytes()
+        content_hash = hashlib.sha256(pdf_content).hexdigest()
+
+        with get_db_session() as db:
+            # Check if dataset with this name already exists
+            existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dataset '{dataset_name}' already exists. Use a different name."
+                )
+
+            # Create raw dataset
+            raw_dataset = RawDataset(
+                name=dataset_name,
+                description=f"Imported from PDF: {local_file}",
+                source_type="upload",
+            )
+            db.add(raw_dataset)
+            db.flush()
+
+            # Add PDF file to the dataset
+            raw_file = RawFile(
+                raw_dataset_id=raw_dataset.id,
+                filename=local_file,
+                file_type="pdf",
+                mime_type="application/pdf",
+                file_content=pdf_content,
+                size_bytes=len(pdf_content),
+                content_hash=content_hash,
+            )
+            db.add(raw_file)
+
+            # Update dataset stats
+            raw_dataset.total_file_count = 1
+            raw_dataset.total_size_bytes = len(pdf_content)
+            db.commit()
+
+            logger.info(f"Created raw dataset '{dataset_name}' (id={raw_dataset.id}) from PDF")
+
+            return {
+                "success": True,
+                "raw_dataset_id": raw_dataset.id,
+                "name": dataset_name,
+                "file_count": 1,
+                "size_bytes": len(pdf_content),
+                "message": f"PDF imported as raw dataset. Go to Data Management to preprocess it."
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to import PDF as raw dataset: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to import PDF: {e}")
+
+
+@router.post("/import/pdf-upload-as-raw")
+async def import_pdf_upload_as_raw(
+    file: UploadFile = File(...),
+    dataset_name: str = Form(...),
+):
+    """
+    Upload a PDF file as a raw dataset (no Q&A generation).
+
+    Args:
+        file: The PDF file to upload
+        dataset_name: Name for the raw dataset
+
+    Returns:
+        Created raw dataset info
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    try:
+        pdf_content = await file.read()
+        content_hash = hashlib.sha256(pdf_content).hexdigest()
+
+        with get_db_session() as db:
+            # Check if dataset with this name already exists
+            existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dataset '{dataset_name}' already exists. Use a different name."
+                )
+
+            # Create raw dataset
+            raw_dataset = RawDataset(
+                name=dataset_name,
+                description=f"Uploaded PDF: {file.filename}",
+                source_type="upload",
+            )
+            db.add(raw_dataset)
+            db.flush()
+
+            # Add PDF file
+            raw_file = RawFile(
+                raw_dataset_id=raw_dataset.id,
+                filename=file.filename,
+                file_type="pdf",
+                mime_type="application/pdf",
+                file_content=pdf_content,
+                size_bytes=len(pdf_content),
+                content_hash=content_hash,
+            )
+            db.add(raw_file)
+
+            # Update dataset stats
+            raw_dataset.total_file_count = 1
+            raw_dataset.total_size_bytes = len(pdf_content)
+            db.commit()
+
+            logger.info(f"Uploaded PDF as raw dataset '{dataset_name}' (id={raw_dataset.id})")
+
+            return {
+                "success": True,
+                "raw_dataset_id": raw_dataset.id,
+                "name": dataset_name,
+                "file_count": 1,
+                "size_bytes": len(pdf_content),
+                "message": f"PDF uploaded as raw dataset. Go to Data Management to preprocess it."
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload PDF as raw dataset: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload PDF: {e}")
+
+
+class GenerateQARequest(BaseModel):
+    """Request to generate Q&A pairs from a processed dataset."""
+    processed_dataset_id: int
+    dataset_name: str
+    max_pairs: int = 50
+    pairs_per_chunk: int = 2
+
+
+class GenerateQAStatus(BaseModel):
+    """Status of a Q&A generation job."""
+    status: str  # pending, fetching, generating, completed, failed
+    progress: int  # 0-100
+    message: str
+    pairs_generated: int = 0
+    eval_dataset_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+# In-memory storage for Q&A generation job status
+_qa_generation_jobs: dict[str, GenerateQAStatus] = {}
+
+
+@router.get("/generate-qa/status/{job_id}")
+async def get_qa_generation_status(job_id: str):
+    """Get the status of a Q&A generation job."""
+    if job_id not in _qa_generation_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _qa_generation_jobs[job_id]
+
+
+async def _process_qa_generation(
+    job_id: str,
+    processed_dataset_id: int,
+    dataset_name: str,
+    max_pairs: int,
+    pairs_per_chunk: int,
+):
+    """Background task to generate Q&A pairs from a processed dataset."""
+    from services.processed_dataset import processed_dataset_service
+    from database_models import ProcessedDataset
+
+    try:
+        _qa_generation_jobs[job_id] = GenerateQAStatus(
+            status="fetching",
+            progress=5,
+            message="Fetching chunks from processed dataset...",
+        )
+
+        # Get all chunks from the processed dataset
+        all_chunks = []
+        page = 1
+        limit = 100
+
+        with get_db_session() as db:
+            # Get dataset info
+            dataset = db.query(ProcessedDataset).filter(ProcessedDataset.id == processed_dataset_id).first()
+            if not dataset:
+                raise ValueError(f"Processed dataset {processed_dataset_id} not found")
+
+            # Fetch chunks in pages
+            while True:
+                result = processed_dataset_service.get_chunks(db, processed_dataset_id, page=page, limit=limit)
+                chunks = result.get("chunks", [])
+                if not chunks:
+                    break
+                all_chunks.extend(chunks)
+                if len(all_chunks) >= result.get("total", 0):
+                    break
+                page += 1
+
+        if not all_chunks:
+            raise ValueError("No chunks found in the processed dataset")
+
+        logger.info(f"Fetched {len(all_chunks)} chunks from processed dataset {processed_dataset_id}")
+
+        _qa_generation_jobs[job_id] = GenerateQAStatus(
+            status="generating",
+            progress=20,
+            message=f"Generating Q&A pairs from {len(all_chunks)} chunks...",
+        )
+
+        # Limit chunks based on max_pairs
+        max_chunks = min(len(all_chunks), max_pairs // pairs_per_chunk + 1)
+        selected_chunks = all_chunks[:max_chunks]
+
+        # Generate Q&A pairs
+        qa_generator = QAGeneratorService()
+        all_pairs = []
+
+        batch_size = 5
+        total_chunks = len(selected_chunks)
+
+        for i in range(0, total_chunks, batch_size):
+            batch = selected_chunks[i:i + batch_size]
+
+            for chunk in batch:
+                chunk_text = chunk.get("content") or chunk.get("text", "")
+                if not chunk_text or len(chunk_text) < 100:
+                    continue
+
+                result = await qa_generator.generate_qa_pairs(
+                    text=chunk_text,
+                    num_pairs=pairs_per_chunk,
+                    use_vllm=True,
+                )
+                if result:
+                    all_pairs.extend(result)
+
+            # Update progress
+            progress = 20 + int((i + len(batch)) / total_chunks * 70)
+            _qa_generation_jobs[job_id] = GenerateQAStatus(
+                status="generating",
+                progress=progress,
+                message=f"Generated {len(all_pairs)} pairs from {min(i + batch_size, total_chunks)}/{total_chunks} chunks...",
+                pairs_generated=len(all_pairs),
+            )
+
+            # Stop if we have enough pairs
+            if len(all_pairs) >= max_pairs:
+                all_pairs = all_pairs[:max_pairs]
+                break
+
+            await asyncio.sleep(0.5)
+
+        if not all_pairs:
+            raise ValueError("No Q&A pairs could be generated from the chunks")
+
+        # Save evaluation dataset
+        new_dataset_id = str(uuid.uuid4())[:8]
+        created_at = datetime.now().isoformat()
+
+        data = {
+            "id": new_dataset_id,
+            "name": dataset_name,
+            "pairs": all_pairs,
+            "created_at": created_at,
+            "source": f"processed_dataset:{processed_dataset_id}",
+            "chunks_processed": len(selected_chunks),
+        }
+
+        _save_dataset(new_dataset_id, data)
+
+        _qa_generation_jobs[job_id] = GenerateQAStatus(
+            status="completed",
+            progress=100,
+            message=f"Successfully generated {len(all_pairs)} Q&A pairs",
+            pairs_generated=len(all_pairs),
+            eval_dataset_id=new_dataset_id,
+        )
+
+        logger.info(f"Q&A generation completed: {len(all_pairs)} pairs saved to dataset {new_dataset_id}")
+
+    except Exception as e:
+        logger.error(f"Q&A generation failed: {e}", exc_info=True)
+        _qa_generation_jobs[job_id] = GenerateQAStatus(
+            status="failed",
+            progress=0,
+            message="Generation failed",
+            error=str(e),
+        )
+
+
+@router.post("/generate-qa")
+async def generate_qa_from_processed(
+    background_tasks: BackgroundTasks,
+    request: GenerateQARequest,
+):
+    """
+    Generate Q&A pairs from a processed dataset.
+
+    This takes chunks from a processed dataset and uses the LLM to generate
+    question-answer pairs for evaluation.
+
+    Args:
+        processed_dataset_id: ID of the processed dataset
+        dataset_name: Name for the evaluation dataset
+        max_pairs: Maximum number of Q&A pairs to generate
+        pairs_per_chunk: Number of Q&A pairs per chunk
+
+    Returns:
+        Job ID for tracking progress
+    """
+    job_id = str(uuid.uuid4())[:8]
+
+    _qa_generation_jobs[job_id] = GenerateQAStatus(
+        status="starting",
+        progress=0,
+        message="Starting Q&A generation...",
+    )
+
+    background_tasks.add_task(
+        _process_qa_generation,
+        job_id=job_id,
+        processed_dataset_id=request.processed_dataset_id,
+        dataset_name=request.dataset_name,
+        max_pairs=request.max_pairs,
+        pairs_per_chunk=request.pairs_per_chunk,
+    )
+
+    return {"job_id": job_id, "status": "started"}
+
+
 @router.post("/run", response_model=RunEvaluationResponse)
 async def run_evaluation(request: RunEvaluationRequest):
     """
