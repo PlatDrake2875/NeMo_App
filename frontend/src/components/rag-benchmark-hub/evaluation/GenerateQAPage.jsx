@@ -73,7 +73,10 @@ export function GenerateQAPage() {
       if (response.ok) {
         const data = await response.json();
         const datasets = data.datasets || data;
-        const completedDatasets = datasets.filter((d) => d.processing_status === "completed");
+        // Show datasets that have either chunks (legacy) or preprocessed documents (new flow)
+        const completedDatasets = datasets.filter(
+          (d) => d.processing_status === "completed" && (d.chunk_count > 0 || d.document_count > 0)
+        );
         setCollections(completedDatasets);
         // Set default collection if available
         if (completedDatasets.length > 0 && !selectedCollection) {
@@ -221,7 +224,9 @@ export function GenerateQAPage() {
                       <div className="flex items-center gap-2">
                         <span>{col.name}</span>
                         <span className="text-muted-foreground">
-                          ({col.chunk_count} chunks)
+                          ({col.document_count > 0
+                            ? `${col.document_count} docs`
+                            : `${col.chunk_count} chunks`})
                         </span>
                         {col.config_hash && (
                           <Badge variant="outline" className="text-[10px] px-1 py-0 font-mono">

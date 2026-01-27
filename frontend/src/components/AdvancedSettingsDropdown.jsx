@@ -67,10 +67,13 @@ export function AdvancedSettingsDropdown({
         isDefault: true,
       });
 
-      // Add processed datasets (filter to only completed ones)
+      // Add processed datasets (filter to only completed ones with chunks indexed)
+      // Note: Only datasets with chunk_count > 0 can be used for RAG chat
+      // New-flow datasets (document_count > 0 but chunk_count = 0) need to be
+      // evaluated first to create embeddings before they can be used for chat
       if (data.datasets && Array.isArray(data.datasets)) {
         data.datasets
-          .filter(d => d.processing_status === "completed")
+          .filter(d => d.processing_status === "completed" && d.chunk_count > 0)
           .forEach(d => {
             // Don't duplicate if someone named their dataset "rag_documents"
             if (d.collection_name !== "rag_documents") {

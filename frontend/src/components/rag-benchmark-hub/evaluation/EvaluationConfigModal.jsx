@@ -183,9 +183,9 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
       if (response.ok) {
         const data = await response.json();
         const datasets = data.datasets || [];
-        // Legacy collections: have chunking config and collection_name
+        // Legacy collections: have chunk_count > 0 (actually indexed to vector store)
         const legacyCollections = datasets.filter(
-          (d) => d.processing_status === "completed" && d.collection_name
+          (d) => d.processing_status === "completed" && d.chunk_count > 0
         );
         setCollections(legacyCollections);
         if (legacyCollections.length > 0 && !config.collection) {
@@ -206,10 +206,10 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
       if (response.ok) {
         const data = await response.json();
         const datasets = data.datasets || [];
-        // New flow: preprocessed datasets without collection_name (chunking happens at eval time)
-        // Also include completed ones that could have preprocessed documents
+        // New flow: datasets with document_count > 0 (preprocessed docs saved)
+        // OR legacy datasets with chunk_count > 0 (can still use them with new chunking)
         const preprocessed = datasets.filter(
-          (d) => d.processing_status === "completed"
+          (d) => d.processing_status === "completed" && (d.document_count > 0 || d.chunk_count > 0)
         );
         setPreprocessedDatasets(preprocessed);
         if (preprocessed.length > 0 && !config.preprocessedDatasetId) {
@@ -430,7 +430,9 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
                       <div className="flex items-center gap-2">
                         <span>{ds.name}</span>
                         <Badge variant="outline" className="text-xs">
-                          {ds.document_count || 0} docs
+                          {ds.document_count > 0
+                            ? `${ds.document_count} docs`
+                            : `${ds.chunk_count} chunks`}
                         </Badge>
                       </div>
                     </SelectItem>
@@ -439,7 +441,9 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
               </Select>
               {selectedPreprocessedDataset && (
                 <p className="text-xs text-muted-foreground">
-                  {selectedPreprocessedDataset.document_count || 0} cleaned documents ready
+                  {selectedPreprocessedDataset.document_count > 0
+                    ? `${selectedPreprocessedDataset.document_count} cleaned documents ready`
+                    : `${selectedPreprocessedDataset.chunk_count} chunks (legacy dataset)`}
                 </p>
               )}
             </div>
