@@ -76,7 +76,8 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
       const response = await fetch(`${API_BASE_URL}/api/processed-datasets`);
       if (response.ok) {
         const data = await response.json();
-        const completed = data.filter(d => d.processing_status === "completed");
+        const datasets = data.datasets || [];
+        const completed = datasets.filter(d => d.processing_status === "completed");
         setCollections(completed);
         if (completed.length > 0 && !config.collection) {
           setConfig(prev => ({ ...prev, collection: completed[0].collection_name }));
