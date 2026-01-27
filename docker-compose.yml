@@ -12,6 +12,7 @@ services:
       - ./backend:/app
       - /app/.venv  # Prevent overwriting virtual env
       - ${DATA_DIR:-./data}/vllm_cache:/root/.cache/huggingface  # Share HF cache with vLLM for model downloads
+      - ./data/eval_pdfs:/app/data/eval_pdfs  # Bundled PDF datasets for evaluation
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for model switching
       - .:/host_project:ro  # Mount project root for docker compose commands
     environment:

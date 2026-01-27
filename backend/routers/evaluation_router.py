@@ -7,6 +7,7 @@ Provides endpoints for:
 - Retrieving evaluation results and metrics
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -15,10 +16,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import asyncio
 import csv
 import io
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from schemas.evaluation import (
     AnswerCorrectnessDetail,
@@ -43,6 +46,11 @@ from schemas.evaluation import (
 )
 from services.qa_generator import QAGeneratorService
 from services.embedding_service import embedding_service
+from services.file_loader import file_loader_service
+from services.chunking import ChunkingService
+from services.raw_dataset import raw_dataset_service
+from database_models import RawDataset, RawFile
+from schemas import RawDatasetCreate, SourceTypeEnum
 from database_models import get_db_session
 from services.evaluation_metrics import RAGEvaluationMetrics
 from rag_components import get_rag_context_prefix, format_docs
@@ -172,6 +180,663 @@ async def delete_eval_dataset(dataset_id: str):
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
     path.unlink()
     return {"status": "deleted", "id": dataset_id}
+
+
+# Pre-configured HuggingFace datasets for one-click import
+HUGGINGFACE_DATASETS = {
+    "microsoft/wiki_qa": {
+        "name": "Microsoft Wiki QA",
+        "description": "Q&A pairs from Wikipedia, ~3k questions",
+        "split": "train",
+        "question_field": "question",
+        "answer_field": "answer",
+        "filter_fn": lambda row: row.get("label") == 1,  # Only positive examples
+    },
+    "squad": {
+        "name": "SQuAD v1.1",
+        "description": "Stanford Question Answering Dataset, ~87k questions",
+        "split": "train",
+        "question_field": "question",
+        "answer_field": "answers",  # SQuAD has answers as dict with 'text' list
+        "answer_extractor": lambda row: row["answers"]["text"][0] if row["answers"]["text"] else "",
+    },
+    "trivia_qa": {
+        "name": "TriviaQA",
+        "description": "Trivia questions with evidence documents",
+        "config": "rc",
+        "split": "train",
+        "question_field": "question",
+        "answer_field": "answer",
+        "answer_extractor": lambda row: row["answer"]["value"] if row["answer"] else "",
+    },
+    "hotpot_qa": {
+        "name": "HotpotQA",
+        "description": "Multi-hop reasoning questions",
+        "config": "fullwiki",
+        "split": "train",
+        "question_field": "question",
+        "answer_field": "answer",
+    },
+}
+
+
+@router.get("/import/datasets")
+async def list_importable_datasets():
+    """List available HuggingFace datasets for import."""
+    return [
+        {
+            "id": dataset_id,
+            "name": config["name"],
+            "description": config["description"],
+        }
+        for dataset_id, config in HUGGINGFACE_DATASETS.items()
+    ]
+
+
+@router.post("/import/huggingface")
+async def import_huggingface_dataset(
+    dataset_id: str,
+    limit: int = 500,
+    custom_name: Optional[str] = None,
+):
+    """
+    Import a dataset from HuggingFace.
+
+    Args:
+        dataset_id: HuggingFace dataset identifier (e.g., 'squad', 'microsoft/wiki_qa')
+        limit: Maximum number of rows to import
+        custom_name: Optional custom name for the dataset
+    """
+    if dataset_id not in HUGGINGFACE_DATASETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset '{dataset_id}' not in pre-configured list. Available: {list(HUGGINGFACE_DATASETS.keys())}"
+        )
+
+    config = HUGGINGFACE_DATASETS[dataset_id]
+
+    try:
+        from datasets import load_dataset
+
+        # Load dataset from HuggingFace
+        load_args = [dataset_id]
+        load_kwargs = {"split": config["split"]}
+        if "config" in config:
+            load_args.append(config["config"])
+
+        logger.info(f"Loading dataset {dataset_id} from HuggingFace...")
+        hf_dataset = load_dataset(*load_args, **load_kwargs)
+
+        # Extract Q&A pairs
+        pairs = []
+        filter_fn = config.get("filter_fn")
+        answer_extractor = config.get("answer_extractor")
+
+        for i, row in enumerate(hf_dataset):
+            if limit and len(pairs) >= limit:
+                break
+
+            # Apply filter if defined
+            if filter_fn and not filter_fn(row):
+                continue
+
+            question = row[config["question_field"]]
+
+            # Extract answer based on dataset format
+            if answer_extractor:
+                answer = answer_extractor(row)
+            else:
+                answer = row[config["answer_field"]]
+
+            # Skip empty answers
+            if not answer or not question:
+                continue
+
+            pairs.append({
+                "query": question,
+                "ground_truth": answer,
+            })
+
+        if not pairs:
+            raise HTTPException(status_code=400, detail="No valid Q&A pairs found in dataset")
+
+        # Create and save dataset
+        new_dataset_id = str(uuid.uuid4())[:8]
+        created_at = datetime.now().isoformat()
+        dataset_name = custom_name or f"{config['name']} ({len(pairs)} pairs)"
+
+        data = {
+            "id": new_dataset_id,
+            "name": dataset_name,
+            "pairs": pairs,
+            "created_at": created_at,
+            "source": f"huggingface:{dataset_id}",
+            "import_limit": limit,
+        }
+
+        _save_dataset(new_dataset_id, data)
+        logger.info(f"Imported {len(pairs)} pairs from {dataset_id}")
+
+        return EvalDatasetResponse(
+            id=new_dataset_id,
+            name=dataset_name,
+            pair_count=len(pairs),
+            created_at=created_at,
+        )
+
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="'datasets' library not installed. Run: pip install datasets"
+        )
+    except Exception as e:
+        logger.error(f"Failed to import dataset {dataset_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+# Directory for bundled PDF datasets
+BUNDLED_PDFS_DIR = Path("data/eval_pdfs")
+BUNDLED_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Pre-configured PDF datasets for one-click import
+# local_file: if set, load from bundled file instead of URL
+PDF_DATASETS = [
+    {
+        "id": "constitutia-romaniei",
+        "name": "Constitutia Romaniei",
+        "description": "Constitutia Romaniei (2003) - document juridic fundamental",
+        "url": "https://www.ccr.ro/wp-content/uploads/2020/03/Constitutia-2003.pdf",
+        "local_file": "constitutia-romaniei.pdf",
+        "language": "ro",
+        "pages": 67,
+    },
+    {
+        "id": "carte-bucate-sanda-marin",
+        "name": "Carte de Bucate - Sanda Marin",
+        "description": "Carte de bucate traditionala romaneasca",
+        "url": "https://apiardeal.ro/biblioteca/carti/GASTRONOMIE/Carte_de_bucate_-_Sanda_Marin_-_255_pag.pdf",
+        "local_file": "carte-bucate-sanda-marin.pdf",
+        "language": "ro",
+        "pages": 255,
+    },
+    {
+        "id": "istoria-romanilor",
+        "name": "Elemente de Istorie a Romaniei",
+        "description": "Manual de istorie a romanilor",
+        "url": "https://www.sociouman-usamvb.ro/documents/Elemente_de_istorie_a_Romaniei.pdf",
+        "local_file": "istoria-romanilor.pdf",
+        "language": "ro",
+        "pages": 128,
+    },
+]
+
+
+@router.get("/import/pdf-datasets")
+async def list_pdf_datasets():
+    """List available pre-configured PDF datasets for import."""
+    return PDF_DATASETS
+
+
+class PDFImportStatus(BaseModel):
+    """Status of a PDF import job."""
+    status: str  # pending, downloading, extracting, chunking, generating, completed, failed
+    progress: int  # 0-100
+    message: str
+    pairs_generated: int = 0
+    dataset_id: Optional[str] = None
+    raw_dataset_id: Optional[int] = None  # ID of created raw dataset (if also_create_raw_dataset=True)
+    error: Optional[str] = None
+
+
+# In-memory storage for import job status (in production, use Redis or DB)
+_pdf_import_jobs: dict[str, PDFImportStatus] = {}
+
+
+@router.get("/import/pdf-status/{job_id}")
+async def get_pdf_import_status(job_id: str):
+    """Get the status of a PDF import job."""
+    if job_id not in _pdf_import_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _pdf_import_jobs[job_id]
+
+
+async def _process_pdf_import(
+    job_id: str,
+    pdf_content: bytes,
+    filename: str,
+    dataset_name: str,
+    max_pairs: int,
+    pairs_per_chunk: int,
+    use_vllm: bool,
+    also_create_raw_dataset: bool = False,
+):
+    """Background task to process PDF and generate Q&A pairs."""
+    raw_dataset_id = None
+
+    try:
+        # Create raw dataset first if requested
+        if also_create_raw_dataset:
+            try:
+                _pdf_import_jobs[job_id] = PDFImportStatus(
+                    status="creating_raw",
+                    progress=5,
+                    message="Creating raw dataset...",
+                )
+
+                with get_db_session() as db:
+                    # Check if dataset with this name already exists
+                    existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
+                    if existing:
+                        raw_dataset_id = existing.id
+                        logger.info(f"Raw dataset '{dataset_name}' already exists (id={raw_dataset_id})")
+                    else:
+                        # Create new raw dataset
+                        raw_dataset = RawDataset(
+                            name=dataset_name,
+                            description=f"Imported from PDF: {filename}",
+                            source_type="upload",
+                        )
+                        db.add(raw_dataset)
+                        db.flush()
+                        raw_dataset_id = raw_dataset.id
+
+                        # Add PDF file to the dataset
+                        content_hash = hashlib.sha256(pdf_content).hexdigest()
+                        raw_file = RawFile(
+                            raw_dataset_id=raw_dataset_id,
+                            filename=filename,
+                            file_type="pdf",
+                            mime_type="application/pdf",
+                            file_content=pdf_content,
+                            size_bytes=len(pdf_content),
+                            content_hash=content_hash,
+                        )
+                        db.add(raw_file)
+
+                        # Update dataset file count and size
+                        raw_dataset.total_file_count = 1
+                        raw_dataset.total_size_bytes = len(pdf_content)
+                        db.commit()
+
+                        logger.info(f"Created raw dataset '{dataset_name}' (id={raw_dataset_id}) with PDF")
+            except Exception as e:
+                logger.warning(f"Failed to create raw dataset: {e}")
+                # Continue with Q&A generation even if raw dataset creation fails
+        # Update status: extracting
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="extracting",
+            progress=10,
+            message=f"Extracting text from {filename}...",
+        )
+
+        # Load PDF
+        documents = file_loader_service.load_file(
+            content=pdf_content,
+            filename=filename,
+            file_type="pdf",
+        )
+
+        if not documents:
+            raise ValueError("No text could be extracted from PDF")
+
+        logger.info(f"Extracted {len(documents)} pages from PDF")
+
+        # Update status: chunking
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="chunking",
+            progress=20,
+            message=f"Chunking {len(documents)} pages...",
+        )
+
+        # Chunk the documents
+        chunking_service = ChunkingService()
+        chunked_docs = chunking_service.chunk_documents(
+            documents=documents,
+            method="recursive",
+            chunk_size=1500,  # Larger chunks for Q&A generation
+            chunk_overlap=200,
+        )
+
+        logger.info(f"Created {len(chunked_docs)} chunks")
+
+        # Limit chunks based on max_pairs
+        max_chunks = min(len(chunked_docs), max_pairs // pairs_per_chunk + 1)
+        selected_chunks = chunked_docs[:max_chunks]
+
+        # Update status: generating
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="generating",
+            progress=30,
+            message=f"Generating Q&A pairs from {len(selected_chunks)} chunks...",
+        )
+
+        # Initialize QA generator
+        qa_generator = QAGeneratorService(use_vllm=use_vllm)
+
+        # Generate Q&A pairs
+        all_pairs = []
+        batch_size = 3
+        total_chunks = len(selected_chunks)
+
+        for i in range(0, total_chunks, batch_size):
+            batch = selected_chunks[i:i + batch_size]
+
+            # Process batch concurrently
+            tasks = [
+                qa_generator.generate_pairs_for_chunk(
+                    chunk_content=doc.page_content,
+                    source_info=f"{filename}, Page {doc.metadata.get('page', 'N/A')}",
+                    pairs_count=pairs_per_chunk,
+                )
+                for doc in batch
+            ]
+
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in batch_results:
+                if isinstance(result, list):
+                    all_pairs.extend(result)
+
+            # Update progress
+            progress = 30 + int((i + len(batch)) / total_chunks * 60)
+            _pdf_import_jobs[job_id] = PDFImportStatus(
+                status="generating",
+                progress=progress,
+                message=f"Generated {len(all_pairs)} pairs from {min(i + batch_size, total_chunks)}/{total_chunks} chunks...",
+                pairs_generated=len(all_pairs),
+            )
+
+            # Stop if we have enough pairs
+            if len(all_pairs) >= max_pairs:
+                all_pairs = all_pairs[:max_pairs]
+                break
+
+            # Small delay between batches
+            await asyncio.sleep(0.5)
+
+        if not all_pairs:
+            raise ValueError("No Q&A pairs could be generated from the PDF")
+
+        # Save dataset
+        new_dataset_id = str(uuid.uuid4())[:8]
+        created_at = datetime.now().isoformat()
+
+        data = {
+            "id": new_dataset_id,
+            "name": dataset_name,
+            "pairs": all_pairs,
+            "created_at": created_at,
+            "source": f"pdf:{filename}",
+            "source_pages": len(documents),
+            "chunks_processed": len(selected_chunks),
+        }
+
+        _save_dataset(new_dataset_id, data)
+
+        # Update status: completed
+        message = f"Successfully generated {len(all_pairs)} Q&A pairs"
+        if raw_dataset_id:
+            message += f" and created raw dataset"
+
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="completed",
+            progress=100,
+            message=message,
+            pairs_generated=len(all_pairs),
+            dataset_id=new_dataset_id,
+            raw_dataset_id=raw_dataset_id,
+        )
+
+        logger.info(f"PDF import completed: {len(all_pairs)} pairs saved to dataset {new_dataset_id}, raw_dataset_id={raw_dataset_id}")
+
+    except Exception as e:
+        logger.error(f"PDF import failed: {e}", exc_info=True)
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="failed",
+            progress=0,
+            message="Import failed",
+            error=str(e),
+        )
+
+
+@router.post("/import/pdf-local")
+async def import_pdf_local(
+    background_tasks: BackgroundTasks,
+    dataset_id: str,
+    max_pairs: int = 100,
+    pairs_per_chunk: int = 2,
+    use_vllm: bool = True,
+    custom_name: Optional[str] = None,
+    also_create_raw_dataset: bool = False,
+):
+    """
+    Import a bundled PDF from local storage and generate Q&A pairs.
+
+    Args:
+        dataset_id: ID of the pre-configured PDF dataset
+        max_pairs: Maximum number of Q&A pairs to generate
+        pairs_per_chunk: Number of Q&A pairs per chunk
+        use_vllm: Whether to use local vLLM (True) or OpenRouter (False)
+
+    Returns:
+        Job ID for tracking progress
+    """
+    # Find the dataset config
+    dataset_config = next((d for d in PDF_DATASETS if d["id"] == dataset_id), None)
+    if not dataset_config:
+        raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+    local_file = dataset_config.get("local_file")
+    if not local_file:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset {dataset_id} does not have a bundled file. Use PDF upload instead."
+        )
+
+    local_path = BUNDLED_PDFS_DIR / local_file
+    if not local_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Bundled PDF not found: {local_file}. Please ensure the file exists in data/eval_pdfs/"
+        )
+
+    job_id = str(uuid.uuid4())[:8]
+
+    # Initialize job status
+    _pdf_import_jobs[job_id] = PDFImportStatus(
+        status="loading",
+        progress=5,
+        message=f"Loading {local_file}...",
+    )
+
+    try:
+        # Read local PDF
+        pdf_content = local_path.read_bytes()
+        logger.info(f"Loaded {len(pdf_content)} bytes from {local_path}")
+
+        # Start background processing
+        background_tasks.add_task(
+            _process_pdf_import,
+            job_id=job_id,
+            pdf_content=pdf_content,
+            filename=local_file,
+            dataset_name=custom_name or dataset_config["name"],
+            max_pairs=max_pairs,
+            pairs_per_chunk=pairs_per_chunk,
+            use_vllm=use_vllm,
+            also_create_raw_dataset=also_create_raw_dataset,
+        )
+
+        return {"job_id": job_id, "status": "started"}
+
+    except Exception as e:
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="failed",
+            progress=0,
+            message="Load failed",
+            error=str(e),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to load PDF: {e}")
+
+
+@router.post("/import/pdf-url")
+async def import_pdf_from_url(
+    background_tasks: BackgroundTasks,
+    url: str,
+    dataset_name: str,
+    max_pairs: int = 100,
+    pairs_per_chunk: int = 2,
+    use_vllm: bool = True,
+    also_create_raw_dataset: bool = False,
+):
+    """
+    Import a PDF from a URL and generate Q&A pairs.
+
+    Args:
+        url: URL to the PDF file
+        dataset_name: Name for the evaluation dataset
+        max_pairs: Maximum number of Q&A pairs to generate
+        pairs_per_chunk: Number of Q&A pairs per chunk
+        use_vllm: Whether to use local vLLM (True) or OpenRouter (False)
+
+    Returns:
+        Job ID for tracking progress
+    """
+    job_id = str(uuid.uuid4())[:8]
+
+    # Initialize job status
+    _pdf_import_jobs[job_id] = PDFImportStatus(
+        status="downloading",
+        progress=0,
+        message=f"Downloading PDF from {url}...",
+    )
+
+    try:
+        # Download PDF with browser-like headers to avoid blocks
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/pdf,application/octet-stream,*/*",
+            "Accept-Language": "en-US,en;q=0.9,ro;q=0.8",
+            "Connection": "keep-alive",
+        }
+        # Try with SSL verification first, then without if it fails
+        try:
+            async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+                response = await client.get(url, headers=headers)
+        except Exception as ssl_err:
+            logger.warning(f"SSL error, retrying without verification: {ssl_err}")
+            async with httpx.AsyncClient(timeout=120.0, follow_redirects=True, verify=False) as client:
+                response = await client.get(url, headers=headers)
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to download PDF: HTTP {response.status_code} - {response.text[:200] if response.text else 'No response body'}"
+            )
+        pdf_content = response.content
+
+        # Verify we got a PDF
+        if not pdf_content or len(pdf_content) < 100:
+            raise HTTPException(status_code=400, detail="Downloaded file is empty or too small")
+        if not pdf_content[:4] == b'%PDF':
+            raise HTTPException(status_code=400, detail="Downloaded file is not a valid PDF")
+
+        # Extract filename from URL
+        filename = url.split("/")[-1]
+        if not filename.endswith(".pdf"):
+            filename = f"{dataset_name}.pdf"
+
+        logger.info(f"Downloaded {len(pdf_content)} bytes from {url}")
+
+        # Start background processing
+        background_tasks.add_task(
+            _process_pdf_import,
+            job_id=job_id,
+            pdf_content=pdf_content,
+            filename=filename,
+            dataset_name=dataset_name,
+            max_pairs=max_pairs,
+            pairs_per_chunk=pairs_per_chunk,
+            use_vllm=use_vllm,
+            also_create_raw_dataset=also_create_raw_dataset,
+        )
+
+        return {"job_id": job_id, "status": "started"}
+
+    except httpx.RequestError as e:
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="failed",
+            progress=0,
+            message="Download failed",
+            error=str(e),
+        )
+        raise HTTPException(status_code=400, detail=f"Failed to download PDF: {e}")
+
+
+@router.post("/import/pdf-upload")
+async def import_pdf_upload(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    dataset_name: str = Form(...),
+    max_pairs: int = Form(100),
+    pairs_per_chunk: int = Form(2),
+    use_vllm: bool = Form(True),
+    also_create_raw_dataset: bool = Form(False),
+):
+    """
+    Upload a PDF file and generate Q&A pairs.
+
+    Args:
+        file: The PDF file to upload
+        dataset_name: Name for the evaluation dataset
+        max_pairs: Maximum number of Q&A pairs to generate
+        pairs_per_chunk: Number of Q&A pairs per chunk
+        use_vllm: Whether to use local vLLM (True) or OpenRouter (False)
+
+    Returns:
+        Job ID for tracking progress
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    job_id = str(uuid.uuid4())[:8]
+
+    # Initialize job status
+    _pdf_import_jobs[job_id] = PDFImportStatus(
+        status="uploading",
+        progress=5,
+        message=f"Processing {file.filename}...",
+    )
+
+    try:
+        # Read file content
+        pdf_content = await file.read()
+
+        logger.info(f"Received PDF upload: {file.filename} ({len(pdf_content)} bytes)")
+
+        # Start background processing
+        background_tasks.add_task(
+            _process_pdf_import,
+            job_id=job_id,
+            pdf_content=pdf_content,
+            filename=file.filename,
+            dataset_name=dataset_name,
+            max_pairs=max_pairs,
+            pairs_per_chunk=pairs_per_chunk,
+            use_vllm=use_vllm,
+            also_create_raw_dataset=also_create_raw_dataset,
+        )
+
+        return {"job_id": job_id, "status": "started"}
+
+    except Exception as e:
+        _pdf_import_jobs[job_id] = PDFImportStatus(
+            status="failed",
+            progress=0,
+            message="Upload failed",
+            error=str(e),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {e}")
 
 
 @router.post("/run", response_model=RunEvaluationResponse)

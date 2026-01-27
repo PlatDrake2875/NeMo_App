@@ -76,7 +76,7 @@ function App() {
 	});
 	const [ragHubView, setRagHubView] = useState(() => {
 		const saved = localStorage.getItem("ragHubView");
-		const validViews = ["dashboard", "raw", "pipeline", "processed", "generate-qa", "evaluation", "huggingface"];
+		const validViews = ["dashboard", "raw", "pipeline", "processed", "generate-qa", "evaluation", "huggingface", "import-eval"];
 		return saved && validViews.includes(saved) ? saved : "dashboard";
 	});
 

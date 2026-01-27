@@ -15,6 +15,7 @@ import { ProcessedDatasetEditor } from "./rag-benchmark-hub/processed-datasets/P
 import { GenerateQAPage } from "./rag-benchmark-hub/evaluation/GenerateQAPage";
 import { EvaluationPage } from "./rag-benchmark-hub/evaluation/EvaluationPage";
 import { EvaluationDashboard } from "./rag-benchmark-hub/evaluation/EvaluationDashboard";
+import { ImportEvalDatasetsPage } from "./rag-benchmark-hub/evaluation/ImportEvalDatasetsPage";
 import { AnnotationWorkbench } from "./rag-benchmark-hub/annotation/AnnotationWorkbench";
 import { HuggingFaceImporter } from "./rag-benchmark-hub/huggingface/HuggingFaceImporter";
 import { ExpertSettings } from "./rag-benchmark-hub/settings/ExpertSettings";
@@ -34,6 +35,8 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange 
         return <GenerateQAPage />;
       case "evaluation":
         return <EvaluationPage />;
+      case "import-eval":
+        return <ImportEvalDatasetsPage onImportComplete={() => onViewChange("generate-qa")} />;
       case "annotation":
         return <AnnotationWorkbench />;
       case "huggingface":
@@ -64,6 +67,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange 
           {currentView === "processed" && "Processed Datasets"}
           {currentView === "generate-qa" && "Generate Q&A Dataset"}
           {currentView === "evaluation" && "Evaluation"}
+          {currentView === "import-eval" && "Import Evaluation Datasets"}
           {currentView === "annotation" && "Annotation Workbench"}
           {currentView === "huggingface" && "HuggingFace Import"}
           {currentView === "settings" && "Expert Settings"}

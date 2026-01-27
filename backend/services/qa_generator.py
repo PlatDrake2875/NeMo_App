@@ -414,8 +414,11 @@ class QAGeneratorService:
             # Inside docker, use the service name
             vllm_url = "http://vllm:8000"
 
+        # Get current model from vLLM API (handles dynamic model switching)
+        current_model = await self._get_current_vllm_model() or self.model
+
         payload = {
-            "model": self.model,
+            "model": current_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,

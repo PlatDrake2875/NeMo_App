@@ -44,6 +44,7 @@ const ragHubNavItems = [
   { id: "evaluation", label: "Evaluation", icon: FlaskConical },
   { id: "annotation", label: "Annotation", icon: ClipboardCheck },
   { id: "huggingface", label: "HuggingFace Import", icon: Download },
+  { id: "import-eval", label: "Import Eval Datasets", icon: Download },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
