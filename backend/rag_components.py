@@ -605,6 +605,9 @@ def _get_collection_backend(collection_name: str) -> str:
     """
     Look up the vector backend for a collection from the database.
 
+    Checks both processed_datasets (legacy collections) and embedding_caches
+    (dynamically created collections from evaluation).
+
     Args:
         collection_name: Name of the collection
 
@@ -617,6 +620,7 @@ def _get_collection_backend(collection_name: str) -> str:
     try:
         engine = create_engine(POSTGRES_CONNECTION_STRING)
         with engine.connect() as conn:
+            # First check processed_datasets (legacy collections)
             result = conn.execute(
                 text("""
                     SELECT vector_backend FROM processed_datasets
@@ -627,8 +631,23 @@ def _get_collection_backend(collection_name: str) -> str:
             )
             row = result.fetchone()
             if row and row[0]:
-                logger.info(f"[RAG] Collection '{collection_name}' uses backend: {row[0]}")
+                logger.info(f"[RAG] Collection '{collection_name}' uses backend: {row[0]} (from processed_datasets)")
                 return row[0]
+
+            # Check embedding_caches (dynamically created collections from evaluation)
+            result = conn.execute(
+                text("""
+                    SELECT vector_backend FROM embedding_caches
+                    WHERE collection_name = :collection_name
+                    LIMIT 1
+                """),
+                {"collection_name": collection_name}
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                logger.info(f"[RAG] Collection '{collection_name}' uses backend: {row[0]} (from embedding_caches)")
+                return row[0]
+
     except Exception as e:
         logger.warning(f"Could not look up backend for collection '{collection_name}': {e}")
 
