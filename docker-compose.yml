@@ -44,6 +44,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 40s
+    # GPU access for ColBERT reranking (optional - falls back to CPU if unavailable)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     profiles: ["fullstack"]
   # Frontend - React with Vite HMR
   frontend:
