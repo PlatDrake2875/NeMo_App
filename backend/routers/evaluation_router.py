@@ -650,19 +650,28 @@ async def generate_qa_dataset(request: GenerateQARequest):
     """
     Generate Q&A pairs from a processed dataset using LLM.
 
+    Supports two LLM providers:
+    - OpenRouter (default): Cloud-based, uses GPT-4o-mini or other models
+    - Local vLLM: Uses your local vLLM instance
+
     This will:
     1. Retrieve chunks from the processed dataset
-    2. Use OpenRouter LLM to generate Q&A pairs from each chunk
+    2. Use the selected LLM to generate Q&A pairs from each chunk
     3. Save the generated pairs as an evaluation dataset
     """
     try:
-        generator = QAGeneratorService(model=request.model)
+        generator = QAGeneratorService(
+            model=request.model,
+            use_vllm=request.use_vllm,
+            temperature=request.temperature,
+        )
 
         result = await generator.generate_pairs_for_dataset(
             processed_dataset_id=request.processed_dataset_id,
             name=request.name,
             pairs_per_chunk=request.pairs_per_chunk,
             max_chunks=request.max_chunks,
+            seed=request.seed,
         )
 
         return GenerateQAResponse(

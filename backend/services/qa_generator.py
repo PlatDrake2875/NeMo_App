@@ -75,22 +75,28 @@ Respond with a JSON object in this exact format:
 class QAGeneratorService:
     """Generate Q&A pairs from document chunks using OpenRouter or vLLM."""
 
-    def __init__(self, model: Optional[str] = None, use_vllm: Optional[bool] = None):
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        use_vllm: Optional[bool] = None,
+        temperature: float = 0.3,
+    ):
         # Determine whether to use vLLM or OpenRouter
         # Use vLLM if explicitly requested OR if OpenRouter API key is not set
         if use_vllm is None:
             use_vllm = not OPENROUTER_API_KEY
 
         self.use_vllm = use_vllm
+        self.temperature = temperature
 
         if self.use_vllm:
             self.model = model or VLLM_MODEL
             self.client = None  # Will use direct HTTP calls to vLLM
-            logger.info(f"QAGenerator using local vLLM with model: {self.model}")
+            logger.info(f"QAGenerator using local vLLM with model: {self.model}, temperature: {temperature}")
         else:
             self.model = model or OPENROUTER_DEFAULT_MODEL
             self.client = OpenRouterClient()
-            logger.info(f"QAGenerator using OpenRouter with model: {self.model}")
+            logger.info(f"QAGenerator using OpenRouter with model: {self.model}, temperature: {temperature}")
 
         self._engine = None
         self._session_maker = None
@@ -458,7 +464,7 @@ class QAGeneratorService:
                 response = await self._call_vllm(
                     prompt=prompt,
                     system_prompt=QA_GENERATION_SYSTEM_PROMPT,
-                    temperature=0.3,
+                    temperature=self.temperature,
                     max_tokens=1024,
                 )
             else:
@@ -467,7 +473,7 @@ class QAGeneratorService:
                     prompt=prompt,
                     system_prompt=QA_GENERATION_SYSTEM_PROMPT,
                     model=self.model,
-                    temperature=0.3,
+                    temperature=self.temperature,
                     max_tokens=1024,
                 )
 

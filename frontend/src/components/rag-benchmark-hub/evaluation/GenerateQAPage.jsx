@@ -40,8 +40,25 @@ export function GenerateQAPage() {
     name: "",
     pairsPerChunk: 2,
     maxChunks: 50,
+    useVllm: false, // false = OpenRouter, true = local vLLM
+    model: "default", // "default" = use default for provider
+    temperature: 0.3,
   });
   const [generationResult, setGenerationResult] = useState(null);
+
+  // Available models per provider
+  const openRouterModels = [
+    { value: "default", label: "Default (GPT-4o-mini)" },
+    { value: "openai/gpt-4o-mini", label: "GPT-4o-mini" },
+    { value: "openai/gpt-4o", label: "GPT-4o" },
+    { value: "anthropic/claude-3-haiku", label: "Claude 3 Haiku" },
+    { value: "anthropic/claude-3-5-sonnet", label: "Claude 3.5 Sonnet" },
+    { value: "google/gemini-flash-1.5", label: "Gemini Flash 1.5" },
+  ];
+
+  const vllmModels = [
+    { value: "default", label: "Default (configured model)" },
+  ];
 
   // Fetch collections and eval datasets on mount
   useEffect(() => {
@@ -111,9 +128,11 @@ export function GenerateQAPage() {
         body: JSON.stringify({
           processed_dataset_id: selectedCol.id,
           name: generationConfig.name.trim(),
-          model: "openai/gpt-4o-mini",
+          model: generationConfig.model === "default" ? null : generationConfig.model,
           pairs_per_chunk: generationConfig.pairsPerChunk,
           max_chunks: generationConfig.maxChunks,
+          use_vllm: generationConfig.useVllm,
+          temperature: generationConfig.temperature,
         }),
       });
 
@@ -233,7 +252,7 @@ export function GenerateQAPage() {
               Generate Evaluation Dataset
             </CardTitle>
             <CardDescription>
-              Create Q&A pairs from your documents using AI (GPT-4o-mini)
+              Create Q&A pairs from your documents using OpenRouter or local vLLM
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -250,8 +269,55 @@ export function GenerateQAPage() {
               />
             </div>
 
+            {/* LLM Provider Selection */}
+            <div className="space-y-2">
+              <Label>LLM Provider</Label>
+              <Select
+                value={generationConfig.useVllm ? "vllm" : "openrouter"}
+                onValueChange={(value) =>
+                  setGenerationConfig((prev) => ({
+                    ...prev,
+                    useVllm: value === "vllm",
+                    model: "default", // Reset model when provider changes
+                  }))
+                }
+                disabled={isGenerating}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openrouter">OpenRouter (Cloud)</SelectItem>
+                  <SelectItem value="vllm">Local vLLM</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Model Selection */}
+            <div className="space-y-2">
+              <Label>Model</Label>
+              <Select
+                value={generationConfig.model}
+                onValueChange={(value) =>
+                  setGenerationConfig((prev) => ({ ...prev, model: value }))
+                }
+                disabled={isGenerating}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select model..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(generationConfig.useVllm ? vllmModels : openRouterModels).map((model) => (
+                    <SelectItem key={model.value} value={model.value}>
+                      {model.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Generation Settings */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Pairs per Chunk</Label>
                 <Select
@@ -285,10 +351,31 @@ export function GenerateQAPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="10">10 chunks (~20 pairs)</SelectItem>
-                    <SelectItem value="25">25 chunks (~50 pairs)</SelectItem>
-                    <SelectItem value="50">50 chunks (~100 pairs)</SelectItem>
-                    <SelectItem value="100">100 chunks (~200 pairs)</SelectItem>
+                    <SelectItem value="10">10 chunks</SelectItem>
+                    <SelectItem value="25">25 chunks</SelectItem>
+                    <SelectItem value="50">50 chunks</SelectItem>
+                    <SelectItem value="100">100 chunks</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Temperature</Label>
+                <Select
+                  value={String(generationConfig.temperature)}
+                  onValueChange={(value) =>
+                    setGenerationConfig((prev) => ({ ...prev, temperature: parseFloat(value) }))
+                  }
+                  disabled={isGenerating}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0.1">0.1 (Focused)</SelectItem>
+                    <SelectItem value="0.3">0.3 (Balanced)</SelectItem>
+                    <SelectItem value="0.5">0.5 (Creative)</SelectItem>
+                    <SelectItem value="0.7">0.7 (Diverse)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

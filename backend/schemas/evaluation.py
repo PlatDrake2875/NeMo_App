@@ -330,9 +330,12 @@ class GenerateQARequest(BaseModel):
 
     processed_dataset_id: int = Field(..., description="ID of the processed dataset to generate pairs from")
     name: str = Field(..., description="Name for the evaluation dataset")
-    model: str = Field("openai/gpt-4o-mini", description="OpenRouter model to use")
+    use_vllm: bool = Field(False, description="Use local vLLM instead of OpenRouter")
+    model: Optional[str] = Field(None, description="Model to use (defaults based on provider)")
     pairs_per_chunk: int = Field(2, description="Number of Q&A pairs per chunk", ge=1, le=5)
     max_chunks: Optional[int] = Field(50, description="Maximum chunks to process (None for all)", ge=1)
+    temperature: float = Field(0.3, description="Temperature for generation", ge=0, le=1)
+    seed: Optional[int] = Field(None, description="Random seed for reproducibility")
 
 
 class GenerateQAResponse(BaseModel):
