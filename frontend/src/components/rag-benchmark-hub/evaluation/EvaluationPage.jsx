@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import {
   Card,
   CardContent,
@@ -413,9 +413,8 @@ export function EvaluationPage() {
                 </TableHeader>
                 <TableBody>
                   {results.results?.map((result, index) => (
-                    <>
+                    <Fragment key={index}>
                       <TableRow
-                        key={index}
                         className="cursor-pointer hover:bg-muted/50"
                         onClick={() => toggleRowExpansion(index)}
                       >
@@ -521,7 +520,7 @@ export function EvaluationPage() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>
