@@ -1158,6 +1158,7 @@ async def start_evaluation_task(request: RunEvaluationRequest):
     service = get_evaluation_task_service()
 
     task_id = await service.create_task(
+        experiment_name=request.experiment_name,
         eval_dataset_id=request.eval_dataset_id,
         collection_name=request.collection_name,
         use_rag=request.use_rag,

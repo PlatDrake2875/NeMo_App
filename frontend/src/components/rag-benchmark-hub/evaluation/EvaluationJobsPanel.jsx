@@ -75,6 +75,27 @@ const STATUS_CONFIG = {
   },
 };
 
+// Mini metric bar component
+function MetricBar({ label, value, color }) {
+  const percentage = (value * 100).toFixed(0);
+  const barColor = value >= 0.7 ? "bg-green-500" : value >= 0.4 ? "bg-yellow-500" : "bg-red-500";
+
+  return (
+    <div className="flex-1 min-w-[80px]">
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{percentage}%</span>
+      </div>
+      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+        <div
+          className={`h-full ${barColor} rounded-full transition-all`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function JobCard({ task, onViewResults, onCancel, onRetry }) {
   const statusConfig = STATUS_CONFIG[task.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
@@ -82,7 +103,7 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
   const formatTime = (isoString) => {
     if (!isoString) return "";
     const date = new Date(isoString);
-    return date.toLocaleString();
+    return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const getDuration = () => {
@@ -96,155 +117,155 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
     return `${minutes}m ${remainingSeconds}s`;
   };
 
-  // Get metrics summary for completed runs
-  const getMetricsSummary = () => {
-    if (!task.metrics) return null;
-    const correctness = task.metrics.answer_correctness;
-    const faithfulness = task.metrics.faithfulness;
-    if (correctness == null && faithfulness == null) return null;
-    return { correctness, faithfulness };
-  };
-
-  const metrics = getMetricsSummary();
+  const metrics = task.metrics;
+  const isCompleted = task.status === "completed";
+  const isRunning = task.status === "running" || task.status === "pending";
+  const isFailed = task.status === "failed" || task.status === "cancelled";
 
   return (
-    <Card className={`${statusConfig.bgColor} ${statusConfig.borderColor} border`}>
+    <Card className={`group hover:shadow-md transition-all duration-200 ${
+      isCompleted ? "bg-card border-l-4 border-l-green-500" :
+      isRunning ? "bg-blue-50/50 dark:bg-blue-950/10 border-l-4 border-l-blue-500" :
+      isFailed ? "bg-red-50/50 dark:bg-red-950/10 border-l-4 border-l-red-500" :
+      "bg-card"
+    }`}>
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-4">
-          {/* Left side - Status and Info */}
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className={`mt-0.5 ${statusConfig.color}`}>
-              <StatusIcon
-                className={`h-5 w-5 ${statusConfig.animate ? "animate-spin" : ""}`}
-              />
+        {/* Header Row */}
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className={`${statusConfig.color} flex-shrink-0`}>
+              <StatusIcon className={`h-5 w-5 ${statusConfig.animate ? "animate-spin" : ""}`} />
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-sm truncate">
+                <h3 className="font-semibold text-sm truncate">
                   {task.eval_dataset_name || "Quick Test"}
-                </span>
-                {task.status !== "completed" && (
+                </h3>
+                {!isCompleted && (
                   <Badge variant={statusConfig.badgeVariant} className="text-xs">
                     {statusConfig.label}
                   </Badge>
                 )}
-                {task.pair_count && (
-                  <Badge variant="outline" className="text-xs">
-                    {task.pair_count} pairs
-                  </Badge>
-                )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1 truncate">
-                Collection: {task.collection_display_name?.split("_").slice(-2).join("_") || "N/A"}
+              <p className="text-xs text-muted-foreground truncate">
+                {task.collection_display_name?.split("_").slice(-2).join("_") || "N/A"}
+                {task.pair_count && <span className="ml-2">• {task.pair_count} pairs</span>}
               </p>
-              {/* Hyperparameters */}
-              {task.config && (
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  {task.config.use_rag !== undefined && (
-                    <Badge variant={task.config.use_rag ? "default" : "secondary"} className="text-xs py-0">
-                      RAG {task.config.use_rag ? "ON" : "OFF"}
-                    </Badge>
-                  )}
-                  {task.config.use_colbert !== undefined && (
-                    <Badge variant={task.config.use_colbert ? "default" : "outline"} className="text-xs py-0">
-                      ColBERT {task.config.use_colbert ? "ON" : "OFF"}
-                    </Badge>
-                  )}
-                  {task.config.top_k && (
-                    <Badge variant="outline" className="text-xs py-0">
-                      K={task.config.top_k}
-                    </Badge>
-                  )}
-                  {task.config.temperature !== undefined && (
-                    <Badge variant="outline" className="text-xs py-0">
-                      T={task.config.temperature}
-                    </Badge>
-                  )}
-                  {task.config.embedder && (
-                    <Badge variant="outline" className="text-xs py-0 font-mono">
-                      {task.config.embedder.split("/").pop()}
-                    </Badge>
-                  )}
-                </div>
-              )}
-              {task.status === "running" && task.current_step && (
-                <p className="text-xs text-muted-foreground mt-1 truncate">
-                  {task.current_step}
-                </p>
-              )}
-              {task.error_message && (
-                <p className="text-xs text-red-600 mt-1 truncate">
-                  Error: {task.error_message}
-                </p>
-              )}
-              {/* Metrics for completed runs */}
-              {metrics && (
-                <div className="flex items-center gap-3 mt-1 text-xs">
-                  {metrics.correctness != null && (
-                    <span className={metrics.correctness >= 0.7 ? "text-green-600" : metrics.correctness >= 0.4 ? "text-yellow-600" : "text-red-600"}>
-                      Correctness: {(metrics.correctness * 100).toFixed(0)}%
-                    </span>
-                  )}
-                  {metrics.faithfulness != null && (
-                    <span className={metrics.faithfulness >= 0.7 ? "text-green-600" : metrics.faithfulness >= 0.4 ? "text-yellow-600" : "text-red-600"}>
-                      Faithful: {(metrics.faithfulness * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-              )}
-              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                <span>{formatTime(task.created_at)}</span>
-                {getDuration() && <span>Duration: {getDuration()}</span>}
-              </div>
             </div>
           </div>
 
-          {/* Right side - Progress and Actions */}
-          <div className="flex flex-col items-end gap-2">
-            {/* Progress for running tasks */}
-            {(task.status === "running" || task.status === "pending") && (
-              <div className="w-32">
-                <div className="flex justify-between text-xs mb-1">
-                  <span>{task.current_pair}/{task.total_pairs}</span>
-                  <span>{task.progress_percent?.toFixed(0)}%</span>
-                </div>
-                <Progress value={task.progress_percent || 0} className="h-2" />
-              </div>
+          {/* Action buttons */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isCompleted && task.result_run_id && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => onViewResults?.(task.result_run_id)}
+                className="shadow-sm"
+              >
+                <Eye className="h-4 w-4 mr-1" />
+                View
+              </Button>
             )}
+            {isRunning && (
+              <Button variant="outline" size="sm" onClick={() => onCancel?.(task.id)}>
+                <Square className="h-4 w-4 mr-1" />
+                Cancel
+              </Button>
+            )}
+            {isFailed && (
+              <Button variant="outline" size="sm" onClick={() => onRetry?.(task)}>
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Retry
+              </Button>
+            )}
+          </div>
+        </div>
 
-            {/* Action buttons */}
-            <div className="flex items-center gap-1">
-              {task.status === "completed" && task.result_run_id && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onViewResults?.(task.result_run_id)}
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  Results
-                </Button>
+        {/* Progress for running tasks */}
+        {isRunning && (
+          <div className="mb-3 p-3 bg-blue-100/50 dark:bg-blue-900/20 rounded-lg">
+            <div className="flex justify-between text-xs mb-2">
+              <span className="text-muted-foreground">{task.current_step || "Processing..."}</span>
+              <span className="font-medium">{task.current_pair || 0}/{task.total_pairs || 0} ({task.progress_percent?.toFixed(0) || 0}%)</span>
+            </div>
+            <Progress value={task.progress_percent || 0} className="h-2" />
+          </div>
+        )}
+
+        {/* Error message for failed tasks */}
+        {task.error_message && (
+          <div className="mb-3 p-2 bg-red-100 dark:bg-red-900/20 rounded text-xs text-red-700 dark:text-red-400">
+            {task.error_message}
+          </div>
+        )}
+
+        {/* Metrics for completed runs */}
+        {isCompleted && metrics && (
+          <div className="mb-3 p-3 bg-muted/50 rounded-lg">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {metrics.answer_correctness != null && (
+                <MetricBar label="Correctness" value={metrics.answer_correctness} />
               )}
-              {task.status === "running" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onCancel?.(task.id)}
-                >
-                  <Square className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
+              {metrics.faithfulness != null && (
+                <MetricBar label="Faithfulness" value={metrics.faithfulness} />
               )}
-              {(task.status === "failed" || task.status === "cancelled") && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onRetry?.(task)}
-                >
-                  <RefreshCw className="h-4 w-4 mr-1" />
-                  Retry
-                </Button>
+              {metrics.answer_relevancy != null && (
+                <MetricBar label="Relevancy" value={metrics.answer_relevancy} />
+              )}
+              {metrics.context_precision != null && (
+                <MetricBar label="Ctx Precision" value={metrics.context_precision} />
               )}
             </div>
+          </div>
+        )}
+
+        {/* Config tags and metadata */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* Hyperparameters */}
+          {task.config && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {task.config.use_rag !== undefined && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                  task.config.use_rag
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                    : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                }`}>
+                  RAG {task.config.use_rag ? "ON" : "OFF"}
+                </span>
+              )}
+              {task.config.use_colbert && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                  ColBERT
+                </span>
+              )}
+              {task.config.top_k && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                  K={task.config.top_k}
+                </span>
+              )}
+              {task.config.temperature !== undefined && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                  T={task.config.temperature}
+                </span>
+              )}
+              {task.config.embedder && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-mono">
+                  {task.config.embedder.split("/").pop()}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Timestamp and duration */}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground ml-auto">
+            <span>{formatTime(task.created_at)}</span>
+            {getDuration() && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {getDuration()}
+              </span>
+            )}
           </div>
         </div>
       </CardContent>

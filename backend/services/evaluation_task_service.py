@@ -76,6 +76,7 @@ class EvaluationTaskService:
         top_k: int = 5,
         temperature: float = 0.1,
         embedder: str = "sentence-transformers/all-MiniLM-L6-v2",
+        experiment_name: Optional[str] = None,
     ) -> str:
         """
         Create a new evaluation task and start it in the background.
@@ -97,8 +98,12 @@ class EvaluationTaskService:
                     total_pairs = len(dataset_data.get("pairs", []))
                     dataset_name = dataset_data.get("name", "Unknown")
 
+        # Use custom experiment name if provided, otherwise fall back to dataset name
+        display_name = experiment_name if experiment_name else dataset_name
+
         # Create task record in database
         config = {
+            "experiment_name": experiment_name,
             "eval_dataset_id": eval_dataset_id,
             "collection_name": collection_name,
             "use_rag": use_rag,
@@ -116,7 +121,7 @@ class EvaluationTaskService:
                 current_pair=0,
                 total_pairs=total_pairs,
                 current_step="Initializing...",
-                eval_dataset_name=dataset_name,
+                eval_dataset_name=display_name,
                 collection_display_name=collection_name,
             )
             session.add(task)
@@ -207,6 +212,7 @@ class EvaluationTaskService:
                 return
 
             config = task_dict["config"]
+            experiment_name = config.get("experiment_name")
             eval_dataset_id = config.get("eval_dataset_id")
             collection_name = config["collection_name"]
             use_rag = config.get("use_rag", True)
@@ -237,6 +243,9 @@ class EvaluationTaskService:
                     }
                 ]
                 dataset_name = "Quick Test"
+
+            # Use custom experiment name if provided
+            run_name = experiment_name if experiment_name else dataset_name
 
             total_pairs = len(pairs)
             self._update_task_progress(task_id, current_step=f"Processing {total_pairs} pairs...")
@@ -389,7 +398,7 @@ class EvaluationTaskService:
 
             run_data = {
                 "id": run_id,
-                "name": dataset_name,
+                "name": run_name,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "eval_dataset_id": eval_dataset_id,
                 "config": eval_config.model_dump(),

@@ -237,6 +237,7 @@ class EvaluationTask(Base):
             "status": self.status,
             "current_pair": self.current_pair,
             "total_pairs": self.total_pairs,
+            "pair_count": self.total_pairs,  # Alias for frontend compatibility
             "progress_percent": self.progress_percent,
             "current_step": self.current_step,
             "created_at": self.created_at.isoformat() if self.created_at else None,

@@ -99,6 +99,7 @@ class EvalDatasetResponse(BaseModel):
 class RunEvaluationRequest(BaseModel):
     """Request to run an evaluation."""
 
+    experiment_name: Optional[str] = Field(None, description="Custom name for this experiment")
     eval_dataset_id: Optional[str] = Field(None, description="ID of the evaluation dataset to use (optional)")
     collection_name: str = Field(..., description="Vector store collection to query")
     use_rag: bool = Field(True, description="Whether to enable RAG")

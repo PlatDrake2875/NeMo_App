@@ -10,6 +10,7 @@ import {
 } from "../../ui/dialog";
 import { Button } from "../../ui/button";
 import { Label } from "../../ui/label";
+import { Input } from "../../ui/input";
 import { Switch } from "../../ui/switch";
 import { Slider } from "../../ui/slider";
 import {
@@ -60,13 +61,16 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
   });
 
   const [selectedEvalDataset, setSelectedEvalDataset] = useState("none");
+  const [experimentName, setExperimentName] = useState("");
   const [isStarting, setIsStarting] = useState(false);
 
-  // Fetch collections and datasets when modal opens
+  // Fetch collections and datasets when modal opens, reset form
   useEffect(() => {
     if (open) {
       fetchCollections();
       fetchEvalDatasets();
+      // Reset experiment name when modal opens
+      setExperimentName("");
     }
   }, [open]);
 
@@ -115,6 +119,7 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          experiment_name: experimentName.trim() || null,
           eval_dataset_id: selectedEvalDataset === "none" ? null : selectedEvalDataset,
           collection_name: config.collection,
           use_rag: config.enableRag,
@@ -129,6 +134,8 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
         const data = await response.json();
         onStartEvaluation?.(data.task_id);
         onOpenChange(false);
+        // Reset form
+        setExperimentName("");
       } else {
         const error = await response.json();
         alert(`Failed to start evaluation: ${error.detail || "Unknown error"}`);
@@ -158,6 +165,26 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          {/* Experiment Name */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <FlaskConical className="h-4 w-4" />
+              Experiment Name
+            </Label>
+            <Input
+              placeholder="e.g., RAG-v2-topk10-colbert"
+              value={experimentName}
+              onChange={(e) => setExperimentName(e.target.value)}
+              maxLength={200}
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              Optional. Give your experiment a memorable name for easy identification.
+            </p>
+          </div>
+
+          <Separator />
+
           {/* Dataset Selection */}
           <div className="space-y-3">
             <Label className="text-sm font-medium flex items-center gap-2">

@@ -23,6 +23,12 @@ import {
   FlaskConical,
   Download,
   ArrowLeft,
+  Settings,
+  BarChart3,
+  FileText,
+  Zap,
+  Target,
+  Clock,
 } from "lucide-react";
 import { API_BASE_URL } from "../../../lib/api-config";
 import { EvaluationConfigModal } from "./EvaluationConfigModal";
@@ -83,6 +89,7 @@ export function EvaluationPage() {
       if (response.ok) {
         const data = await response.json();
         setResults({
+          name: data.name,  // Experiment name
           results: data.results,
           metrics: data.metrics,
           config: data.config,
@@ -168,151 +175,171 @@ export function EvaluationPage() {
       {/* Results Section - Only shown in results view mode */}
       {viewMode === "results" && results && (
         <div className="space-y-6">
-          {/* Back to Jobs button */}
-          <Button
-            variant="outline"
-            onClick={() => {
-              setViewMode("jobs");
-              setResults(null);
-              setCurrentRunId(null);
-            }}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Jobs
-          </Button>
-
-          {/* Experiment Configuration Summary */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Experiment Configuration</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Collection</p>
-                  <p className="text-sm font-medium">{results.config?.collection || "N/A"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">LLM Model</p>
-                  <p className="text-sm font-medium font-mono">{(results.config?.llm_model || "Unknown").split("/").pop()}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Embedder</p>
-                  <p className="text-sm font-medium font-mono">{(results.config?.embedder || "N/A").split("/").pop()}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">RAG Pipeline</p>
-                  <p className="text-sm font-medium">
-                    {results.config?.use_rag ? (
-                      <span className="text-green-600">Enabled</span>
-                    ) : (
-                      <span className="text-muted-foreground">Disabled</span>
-                    )}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Reranker</p>
-                  <p className="text-sm font-medium">
-                    {results.config?.use_colbert ? (
-                      <span className="text-green-600">ColBERT</span>
-                    ) : (
-                      <span className="text-muted-foreground">None</span>
-                    )}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Top-K</p>
-                  <p className="text-sm font-medium">{results.config?.top_k ?? "N/A"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Temperature</p>
-                  <p className="text-sm font-medium">{results.config?.temperature ?? "N/A"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Test Pairs</p>
-                  <p className="text-sm font-medium">{results.results?.length || 0}</p>
-                </div>
+          {/* Results Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setViewMode("jobs");
+                  setResults(null);
+                  setCurrentRunId(null);
+                }}
+                className="gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <div className="h-6 w-px bg-border" />
+              <div>
+                <h2 className="text-xl font-semibold">{results.name || "Experiment Results"}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {results.results?.length || 0} test pairs evaluated
+                </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+            {currentRunId && (
+              <Button variant="outline" size="sm" onClick={() => exportRunAsCSV(currentRunId)}>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+            )}
+          </div>
 
-          <Separator />
+          {/* Two-column layout: Config + Metrics */}
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Experiment Configuration */}
+            <Card className="lg:col-span-1">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Configuration
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Collection</span>
+                    <span className="text-sm font-medium truncate max-w-[150px]">{results.config?.collection || "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-sm text-muted-foreground">LLM</span>
+                    <span className="text-sm font-medium font-mono">{(results.config?.llm_model || "Unknown").split("/").pop()}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Embedder</span>
+                    <span className="text-sm font-medium font-mono">{(results.config?.embedder || "N/A").split("/").pop()}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-sm text-muted-foreground">RAG</span>
+                    <Badge variant={results.config?.use_rag ? "default" : "secondary"}>
+                      {results.config?.use_rag ? "Enabled" : "Disabled"}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Reranker</span>
+                    <Badge variant={results.config?.use_colbert ? "default" : "outline"}>
+                      {results.config?.use_colbert ? "ColBERT" : "None"}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b">
+                    <span className="text-sm text-muted-foreground">Top-K</span>
+                    <span className="text-sm font-medium">{results.config?.top_k ?? "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-muted-foreground">Temperature</span>
+                    <span className="text-sm font-medium">{results.config?.temperature ?? "N/A"}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Metrics Summary */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Evaluation Metrics</CardTitle>
-              <CardDescription>
-                Aggregate scores across all test queries
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-5">
-                <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1" title="F1 factual similarity + semantic similarity">
-                    Avg. Answer Correctness
-                  </p>
-                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.answer_correctness || 0)}`}>
-                    {((results.metrics?.answer_correctness || 0) * 100).toFixed(1)}%
-                  </p>
+            {/* Metrics Summary - Enhanced */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Performance Metrics
+                </CardTitle>
+                <CardDescription>Aggregate scores across all test queries</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* Correctness */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Correctness</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.answer_correctness || 0)}`}>
+                      {((results.metrics?.answer_correctness || 0) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">F1 factual + semantic similarity</p>
+                  </div>
+
+                  {/* Faithfulness */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border border-green-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="h-4 w-4 text-green-600" />
+                      <span className="text-sm font-medium text-green-900 dark:text-green-100">Faithfulness</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.faithfulness || 0)}`}>
+                      {((results.metrics?.faithfulness || 0) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Claims supported by context</p>
+                  </div>
+
+                  {/* Relevancy */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border border-purple-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileText className="h-4 w-4 text-purple-600" />
+                      <span className="text-sm font-medium text-purple-900 dark:text-purple-100">Relevancy</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.answer_relevancy || 0)}`}>
+                      {((results.metrics?.answer_relevancy || 0) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Query-answer embedding similarity</p>
+                  </div>
+
+                  {/* Context Precision */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20 border border-orange-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="h-4 w-4 text-orange-600" />
+                      <span className="text-sm font-medium text-orange-900 dark:text-orange-100">Context Precision</span>
+                    </div>
+                    <p className={`text-3xl font-bold ${getScoreColor(results.metrics?.context_precision || 0)}`}>
+                      {((results.metrics?.context_precision || 0) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Retrieval ranking quality</p>
+                  </div>
+
+                  {/* Latency */}
+                  <div className="relative p-4 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100/50 dark:from-gray-950/30 dark:to-gray-900/20 border border-gray-200/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock className="h-4 w-4 text-gray-600" />
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Avg. Latency</span>
+                    </div>
+                    <p className="text-3xl font-bold text-gray-700 dark:text-gray-300">
+                      {(results.metrics?.avg_latency || 0).toFixed(2)}s
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">Response time per query</p>
+                  </div>
                 </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1" title="Claims in answer supported by retrieved context">
-                    Avg. Faithfulness
-                  </p>
-                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.faithfulness || 0)}`}>
-                    {((results.metrics?.faithfulness || 0) * 100).toFixed(1)}%
-                  </p>
-                </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1" title="Embedding similarity between query and answer">
-                    Avg. Answer Relevancy
-                  </p>
-                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.answer_relevancy || 0)}`}>
-                    {((results.metrics?.answer_relevancy || 0) * 100).toFixed(1)}%
-                  </p>
-                </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1" title="Retrieval ranking quality (mean precision@k)">
-                    Avg. Context Precision
-                  </p>
-                  <p className={`text-2xl font-bold ${getScoreColor(results.metrics?.context_precision || 0)}`}>
-                    {((results.metrics?.context_precision || 0) * 100).toFixed(1)}%
-                  </p>
-                </div>
-                <div className="text-center p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">
-                    Avg. Latency
-                  </p>
-                  <p className="text-2xl font-bold">
-                    {(results.metrics?.avg_latency || 0).toFixed(2)}s
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Results Table */}
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg">Detailed Results</CardTitle>
-                  <CardDescription>
-                    Click on a row to expand and see retrieved context
-                  </CardDescription>
-                </div>
-                {currentRunId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => exportRunAsCSV(currentRunId)}
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Export CSV
-                  </Button>
-                )}
-              </div>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Detailed Results
+              </CardTitle>
+              <CardDescription>
+                Click on a row to expand and see retrieved context
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
