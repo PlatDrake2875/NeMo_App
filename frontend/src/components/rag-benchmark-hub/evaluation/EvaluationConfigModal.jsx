@@ -191,7 +191,17 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
               <Database className="h-4 w-4" />
               Evaluation Dataset
             </Label>
-            <Select value={selectedEvalDataset} onValueChange={setSelectedEvalDataset}>
+            <Select
+              value={selectedEvalDataset}
+              onValueChange={(value) => {
+                setSelectedEvalDataset(value);
+                // Auto-select the matching collection if dataset has source_collection
+                const dataset = evalDatasets.find(d => d.id === value);
+                if (dataset?.source_collection && collections.some(c => c.collection_name === dataset.source_collection)) {
+                  setConfig(prev => ({ ...prev, collection: dataset.source_collection }));
+                }
+              }}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select dataset..." />
               </SelectTrigger>
@@ -209,6 +219,11 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
                       <Badge variant="outline" className="text-xs">
                         {dataset.pair_count} pairs
                       </Badge>
+                      {dataset.source_collection && (
+                        <Badge variant="secondary" className="text-xs font-mono">
+                          {dataset.source_collection.split("_").slice(-2).join("_")}
+                        </Badge>
+                      )}
                     </div>
                   </SelectItem>
                 ))}
@@ -216,8 +231,20 @@ export function EvaluationConfigModal({ open, onOpenChange, onStartEvaluation })
             </Select>
             {selectedDataset && (
               <p className="text-xs text-muted-foreground">
-                {selectedDataset.pair_count} Q&A pairs from {selectedDataset.source_dataset_id || "unknown source"}
+                {selectedDataset.pair_count} Q&A pairs
+                {selectedDataset.source_collection && (
+                  <span> • Generated from: <span className="font-mono">{selectedDataset.source_collection}</span></span>
+                )}
               </p>
+            )}
+            {/* Warning if dataset and collection don't match */}
+            {selectedDataset?.source_collection && config.collection && selectedDataset.source_collection !== config.collection && (
+              <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 rounded text-xs text-yellow-800 dark:text-yellow-200">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>
+                  Warning: Dataset was generated from "{selectedDataset.source_collection}" but you selected "{config.collection}". Results may not be meaningful.
+                </span>
+              </div>
             )}
           </div>
 

@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from database_models import init_database
 from rag_components import setup_rag_components
 from routers import (
+    admin_router,
     agents_router,
     automate_router,
     chat_router,
@@ -88,6 +89,7 @@ app.include_router(processed_dataset_router.router, prefix="/api", tags=["Proces
 app.include_router(huggingface_router.router, prefix="/api", tags=["HuggingFace Endpoints"])
 app.include_router(evaluation_router.router, tags=["Evaluation Endpoints"])
 app.include_router(template_router.router, tags=["Template Endpoints"])
+app.include_router(admin_router.router, tags=["Admin Endpoints"])
 
 
 # --- Main Method for Application Testing ---

@@ -17,6 +17,7 @@ import { EvaluationPage } from "./rag-benchmark-hub/evaluation/EvaluationPage";
 import { EvaluationDashboard } from "./rag-benchmark-hub/evaluation/EvaluationDashboard";
 import { AnnotationWorkbench } from "./rag-benchmark-hub/annotation/AnnotationWorkbench";
 import { HuggingFaceImporter } from "./rag-benchmark-hub/huggingface/HuggingFaceImporter";
+import { ExpertSettings } from "./rag-benchmark-hub/settings/ExpertSettings";
 
 export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange }) {
   const renderView = () => {
@@ -37,6 +38,8 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange 
         return <AnnotationWorkbench />;
       case "huggingface":
         return <HuggingFaceImporter />;
+      case "settings":
+        return <ExpertSettings />;
       default:
         return <DatasetDashboard onNavigate={onViewChange} />;
     }
@@ -63,6 +66,7 @@ export function RAGBenchmarkHub({ onBack, isDarkMode, currentView, onViewChange 
           {currentView === "evaluation" && "Evaluation"}
           {currentView === "annotation" && "Annotation Workbench"}
           {currentView === "huggingface" && "HuggingFace Import"}
+          {currentView === "settings" && "Expert Settings"}
         </h1>
       </div>
 

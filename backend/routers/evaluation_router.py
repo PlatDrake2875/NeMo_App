@@ -96,6 +96,7 @@ async def list_eval_datasets():
                         name=data["name"],
                         pair_count=len(data["pairs"]),
                         created_at=data["created_at"],
+                        source_collection=data.get("source_collection"),  # May be None for old datasets
                     )
                 )
         except Exception as e:

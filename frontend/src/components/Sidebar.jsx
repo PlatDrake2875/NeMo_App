@@ -30,6 +30,7 @@ import {
   FlaskConical,
   Download,
   ClipboardCheck,
+  Settings,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -43,6 +44,7 @@ const ragHubNavItems = [
   { id: "evaluation", label: "Evaluation", icon: FlaskConical },
   { id: "annotation", label: "Annotation", icon: ClipboardCheck },
   { id: "huggingface", label: "HuggingFace Import", icon: Download },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 const formatSessionIdFallback = (sessionId) => {

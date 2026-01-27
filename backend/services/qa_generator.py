@@ -113,7 +113,7 @@ class QAGeneratorService:
         processed_dataset_id: int,
         max_chunks: Optional[int] = None,
         seed: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[str, List[Dict[str, Any]]]:
         """
         Retrieve chunks from a processed dataset's vector store.
 
@@ -123,7 +123,7 @@ class QAGeneratorService:
             seed: Random seed for deterministic ordering. If None, uses random order.
 
         Returns:
-            List of chunk dicts with content and metadata
+            Tuple of (collection_name, list of chunk dicts with content and metadata)
         """
         with self.session_maker() as session:
             # Get the processed dataset info including vector_backend
@@ -147,13 +147,15 @@ class QAGeneratorService:
 
             # Route to appropriate backend
             if vector_backend == "qdrant":
-                return await self._get_chunks_from_qdrant(
+                chunks = await self._get_chunks_from_qdrant(
                     collection_name, dataset_name, max_chunks, seed
                 )
             else:
-                return await self._get_chunks_from_pgvector(
+                chunks = await self._get_chunks_from_pgvector(
                     session, collection_name, dataset_name, max_chunks, seed
                 )
+
+            return collection_name, chunks
 
     async def _get_chunks_from_pgvector(
         self,
@@ -416,7 +418,7 @@ class QAGeneratorService:
         )
 
         # Get chunks from the dataset
-        chunks = await self.get_chunks_for_dataset(
+        collection_name, chunks = await self.get_chunks_for_dataset(
             processed_dataset_id,
             max_chunks=max_chunks,
             seed=seed,
@@ -477,6 +479,7 @@ class QAGeneratorService:
             "pairs": all_pairs,
             "created_at": created_at,
             "source_dataset_id": processed_dataset_id,
+            "source_collection": collection_name,  # Track which collection this was generated from
             "content_hash": content_hash,
             "generation_config": {
                 "model": self.model,
@@ -517,7 +520,7 @@ class QAGeneratorService:
         Returns:
             List of generated Q&A pairs
         """
-        chunks = await self.get_chunks_for_dataset(
+        _, chunks = await self.get_chunks_for_dataset(
             processed_dataset_id,
             max_chunks=sample_size,
         )

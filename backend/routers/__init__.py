@@ -2,6 +2,7 @@
 Routers package - exports all API routers for the application.
 """
 
+from . import admin_router
 from . import agents_router
 from . import automate_router
 from . import chat_router
@@ -19,6 +20,7 @@ from . import template_router
 from . import upload_router
 
 __all__ = [
+    "admin_router",
     "agents_router",
     "automate_router",
     "chat_router",

@@ -94,6 +94,7 @@ class EvalDatasetResponse(BaseModel):
     name: str
     pair_count: int
     created_at: str
+    source_collection: Optional[str] = None  # The collection this dataset was generated from
 
 
 class RunEvaluationRequest(BaseModel):
