@@ -280,7 +280,7 @@ JobCard.propTypes = {
   onRetry: PropTypes.func,
 };
 
-export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
+export function EvaluationJobsPanel({ onViewResults, onNewEvaluation, refreshTrigger }) {
   const [tasks, setTasks] = useState([]);
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -335,6 +335,13 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
 
     return () => clearInterval(interval);
   }, [fetchAll, fetchTasks]);
+
+  // Refresh when triggered by parent (e.g., after starting new evaluation)
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      fetchAll();
+    }
+  }, [refreshTrigger, fetchAll]);
 
   const handleCancel = async (taskId) => {
     try {
@@ -530,6 +537,7 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation }) {
 EvaluationJobsPanel.propTypes = {
   onViewResults: PropTypes.func,
   onNewEvaluation: PropTypes.func,
+  refreshTrigger: PropTypes.number,
 };
 
 export default EvaluationJobsPanel;

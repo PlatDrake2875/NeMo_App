@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment } from "react";
+import { useState, Fragment } from "react";
 import {
   Card,
   CardContent,
@@ -42,45 +42,10 @@ export function EvaluationPage() {
   // Current run state
   const [currentRunId, setCurrentRunId] = useState(null);
 
-  // Background task state
-  const [currentTaskId, setCurrentTaskId] = useState(null);
-  const [activeTasks, setActiveTasks] = useState([]);
-
   // UI state
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [viewMode, setViewMode] = useState("jobs"); // "jobs" or "results"
-
-  // Fetch active/running tasks
-  const fetchActiveTasks = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/tasks?limit=10`);
-      if (response.ok) {
-        const tasks = await response.json();
-        setActiveTasks(tasks);
-        // If there's a running task and we don't have one selected, select it
-        const runningTask = tasks.find(t => t.status === "running");
-        if (runningTask && !currentTaskId) {
-          setCurrentTaskId(runningTask.id);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to fetch active tasks:", err);
-    }
-  };
-
-  // Auto-refresh active tasks when there are running ones
-  useEffect(() => {
-    fetchActiveTasks();
-
-    const interval = setInterval(() => {
-      const hasRunning = activeTasks.some(t => t.status === "running" || t.status === "pending");
-      if (hasRunning) {
-        fetchActiveTasks();
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [activeTasks.length]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Load a past evaluation run
   const loadEvaluationRun = async (runId) => {
@@ -131,9 +96,9 @@ export function EvaluationPage() {
   };
 
   // Handle starting evaluation from modal
-  const handleStartEvaluation = (taskId) => {
-    setCurrentTaskId(taskId);
-    fetchActiveTasks();
+  const handleStartEvaluation = () => {
+    // Trigger refresh of jobs panel to show the new task
+    setRefreshTrigger(prev => prev + 1);
   };
 
   return (
@@ -161,6 +126,7 @@ export function EvaluationPage() {
               setViewMode("results");
             }}
             onNewEvaluation={() => setShowConfigModal(true)}
+            refreshTrigger={refreshTrigger}
           />
         </div>
       ) : null}
