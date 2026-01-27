@@ -12,6 +12,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -49,9 +50,23 @@ from services.embedding_service import embedding_service
 from services.file_loader import file_loader_service
 from services.chunking import ChunkingService
 from services.raw_dataset import raw_dataset_service
-from database_models import RawDataset, RawFile
+from database_models import RawDataset, RawFile, get_session_maker
 from schemas import RawDatasetCreate, SourceTypeEnum
-from database_models import get_db_session
+
+
+@contextmanager
+def get_db():
+    """Context manager for database sessions."""
+    SessionLocal = get_session_maker()
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 from services.evaluation_metrics import RAGEvaluationMetrics
 from rag_components import get_rag_context_prefix, format_docs
 from config import VLLM_BASE_URL, VLLM_MODEL
@@ -423,7 +438,7 @@ async def _process_pdf_import(
                     message="Creating raw dataset...",
                 )
 
-                with get_db_session() as db:
+                with get_db() as db:
                     # Check if dataset with this name already exists
                     existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
                     if existing:
@@ -884,7 +899,7 @@ async def import_pdf_as_raw(
         pdf_content = local_path.read_bytes()
         content_hash = hashlib.sha256(pdf_content).hexdigest()
 
-        with get_db_session() as db:
+        with get_db() as db:
             # Check if dataset with this name already exists
             existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
             if existing:
@@ -959,7 +974,7 @@ async def import_pdf_upload_as_raw(
         pdf_content = await file.read()
         content_hash = hashlib.sha256(pdf_content).hexdigest()
 
-        with get_db_session() as db:
+        with get_db() as db:
             # Check if dataset with this name already exists
             existing = db.query(RawDataset).filter(RawDataset.name == dataset_name).first()
             if existing:
@@ -1012,8 +1027,8 @@ async def import_pdf_upload_as_raw(
         raise HTTPException(status_code=500, detail=f"Failed to upload PDF: {e}")
 
 
-class GenerateQARequest(BaseModel):
-    """Request to generate Q&A pairs from a processed dataset."""
+class GenerateQAFromProcessedRequest(BaseModel):
+    """Request to generate Q&A pairs from a processed dataset (background task version)."""
     processed_dataset_id: int
     dataset_name: str
     max_pairs: int = 50
@@ -1065,7 +1080,7 @@ async def _process_qa_generation(
         page = 1
         limit = 100
 
-        with get_db_session() as db:
+        with get_db() as db:
             # Get dataset info
             dataset = db.query(ProcessedDataset).filter(ProcessedDataset.id == processed_dataset_id).first()
             if not dataset:
@@ -1177,7 +1192,7 @@ async def _process_qa_generation(
 @router.post("/generate-qa")
 async def generate_qa_from_processed(
     background_tasks: BackgroundTasks,
-    request: GenerateQARequest,
+    request: GenerateQAFromProcessedRequest,
 ):
     """
     Generate Q&A pairs from a processed dataset.
@@ -1272,11 +1287,7 @@ async def run_evaluation(request: RunEvaluationRequest):
         from database_models import PreprocessedDocument, ProcessedDataset
         from sqlalchemy import func
 
-        # Get database session
-        db_gen = get_db_session()
-        db = next(db_gen)
-
-        try:
+        with get_db() as db:
             # Check if dataset has preprocessed documents (new flow)
             preprocessed_count = db.query(func.count(PreprocessedDocument.id)).filter(
                 PreprocessedDocument.processed_dataset_id == request.preprocessed_dataset_id
@@ -1320,11 +1331,6 @@ async def run_evaluation(request: RunEvaluationRequest):
                         detail=f"Dataset {request.preprocessed_dataset_id} has no preprocessed documents and no collection. "
                                "Please re-process the dataset."
                     )
-        finally:
-            try:
-                next(db_gen)
-            except StopIteration:
-                pass
 
     # Get pairs from dataset or use test query
     if request.eval_dataset_id:
@@ -2467,19 +2473,11 @@ async def list_embedding_caches(preprocessed_dataset_id: int = None):
     Cached collections can be reused to avoid re-embedding when running
     experiments with the same configuration.
     """
-    db_gen = get_db_session()
-    db = next(db_gen)
-
-    try:
+    with get_db() as db:
         caches = embedding_service.list_cached_collections(
             db, preprocessed_dataset_id=preprocessed_dataset_id
         )
         return caches
-    finally:
-        try:
-            next(db_gen)
-        except StopIteration:
-            pass
 
 
 @router.delete("/embedding-cache/{cache_id}")
@@ -2490,16 +2488,8 @@ async def delete_embedding_cache(cache_id: int):
     This removes the cache entry. The vector store collection may still
     exist and should be cleaned up separately if needed.
     """
-    db_gen = get_db_session()
-    db = next(db_gen)
-
-    try:
+    with get_db() as db:
         deleted = embedding_service.delete_cached_collection(db, cache_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Cache {cache_id} not found")
         return {"status": "deleted", "id": cache_id}
-    finally:
-        try:
-            next(db_gen)
-        except StopIteration:
-            pass
