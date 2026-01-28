@@ -1,0 +1,24 @@
+# Preprocessing Only Configuration
+# Usage: python -m scripts.benchmark preprocess --config preprocess.yaml
+
+source:
+  type: files
+  file_paths:
+    - data/eval_pdfs/document.pdf
+  dataset_name: "Legal Doc Dataset"
+
+preprocessing:
+  cleaning:
+    enabled: true
+    remove_headers_footers: true
+    normalize_whitespace: true
+  lightweight_metadata:
+    enabled: true
+    extract_rake_keywords: true
+  chunking: null  # Defer to evaluation time
+
+embedder_config:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  model_type: "huggingface"
+
+vector_backend: pgvector

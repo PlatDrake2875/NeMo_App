@@ -1,0 +1,10 @@
+# Q&A Generation Only Configuration
+# Usage: python -m scripts.benchmark generate-qa --config generate_qa.yaml
+
+processed_dataset_id: 3
+name: "Legal Doc Q&A v1"
+use_vllm: true
+pairs_per_chunk: 2
+max_chunks: 50
+temperature: 0.3
+seed: 42

@@ -1,0 +1,55 @@
+# Full E2E Benchmark Pipeline Configuration
+# Usage: python -m scripts.benchmark pipeline full_benchmark.yaml
+
+name: "Full Legal Benchmark"
+
+# Stage 1: Preprocessing
+source:
+  type: files
+  file_paths:
+    - data/eval_pdfs/document.pdf
+  dataset_name: "Legal Doc Dataset"
+
+preprocessing:
+  cleaning:
+    enabled: true
+    remove_headers_footers: true
+    normalize_whitespace: true
+  lightweight_metadata:
+    enabled: true
+    extract_rake_keywords: true
+  llm_metadata:
+    enabled: false
+  chunking: null  # Defer to evaluation time
+
+embedder_config:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  model_type: "huggingface"
+
+vector_backend: pgvector
+
+# Stage 2: Q&A Generation
+qa_generation:
+  name: "Legal Doc Q&A"
+  use_vllm: true
+  pairs_per_chunk: 2
+  max_chunks: 50
+  temperature: 0.3
+  seed: 42
+
+# Stage 3: Evaluation
+evaluation:
+  preset: balanced
+  # OR custom config:
+  # chunking:
+  #   method: recursive
+  #   chunk_size: 1000
+  #   chunk_overlap: 200
+  # embedder: "sentence-transformers/all-MiniLM-L6-v2"
+  use_rag: true
+  use_colbert: false
+  top_k: 5
+  temperature: 0.1
+  experiment_name: "Legal Benchmark v1"
+
+output_dir: benchmark_results/legal

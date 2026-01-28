@@ -1,0 +1,18 @@
+# Evaluation Only Configuration
+# Usage: python -m scripts.benchmark evaluate --config evaluate.yaml
+
+eval_dataset_id: "abc123"
+processed_dataset_id: 3
+preset: balanced
+
+# OR use custom config instead of preset:
+# chunking:
+#   method: recursive
+#   chunk_size: 1000
+#   chunk_overlap: 200
+# embedder: "sentence-transformers/all-MiniLM-L6-v2"
+
+use_rag: true
+use_colbert: false
+experiment_name: "Legal Benchmark Experiment"
+output_dir: benchmark_results/legal
