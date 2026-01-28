@@ -36,6 +36,8 @@ dependencies = [
     "slowapi>=0.1.9",
     "regex>=2023.0",
     "docker>=7.0.0",  # Docker SDK for model switching
+    "typer>=0.9.0",  # CLI framework for benchmark scripts
+    "pyyaml>=6.0",  # YAML config parsing
 ]
 
 [project.optional-dependencies]

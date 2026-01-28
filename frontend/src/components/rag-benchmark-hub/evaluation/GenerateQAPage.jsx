@@ -138,6 +138,7 @@ export function GenerateQAPage() {
           max_chunks: generationConfig.maxChunks,
           use_vllm: generationConfig.useVllm,
           temperature: generationConfig.temperature,
+          ...(generationConfig.systemPrompt.trim() && { system_prompt: generationConfig.systemPrompt.trim() }),
         }),
       });
 
@@ -321,6 +322,24 @@ export function GenerateQAPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Custom System Prompt */}
+            <div className="space-y-2">
+              <Label>System Prompt (optional)</Label>
+              <Textarea
+                placeholder="Leave empty to use the default Q&A generation prompt. Enter a custom prompt to focus generation on specific topics, question styles, or domains."
+                value={generationConfig.systemPrompt}
+                onChange={(e) =>
+                  setGenerationConfig((prev) => ({ ...prev, systemPrompt: e.target.value }))
+                }
+                disabled={isGenerating}
+                rows={4}
+                className="text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Customize how Q&A pairs are generated. The default prompt creates a mix of factual, reasoning, and comparison questions.
+              </p>
             </div>
 
             {/* Generation Settings */}
