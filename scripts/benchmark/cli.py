@@ -525,7 +525,7 @@ def evaluate(
         if "output_dir" in cfg and output is None:
             output = Path(cfg["output_dir"]) / "results.csv"
 
-    # Build chunking config if custom options provided
+    # Build chunking config if custom options provided, otherwise resolve from preset
     chunking = None
     if chunk_size is not None or chunk_overlap is not None:
         chunking = ChunkingConfig(
@@ -533,6 +533,17 @@ def evaluate(
             chunk_size=chunk_size or 1000,
             chunk_overlap=chunk_overlap or 200,
         )
+    elif preset and preset in PRESETS:
+        # Resolve preset to actual chunking config
+        preset_config = PRESETS[preset]
+        chunking = preset_config["chunking"]
+        # Also apply other preset defaults if not explicitly overridden
+        if embedder == "sentence-transformers/all-MiniLM-L6-v2":  # default value
+            embedder = preset_config["embedder"]
+        if top_k == 5:  # default value
+            top_k = preset_config["top_k"]
+        if not use_colbert:  # default is False
+            use_colbert = preset_config["use_colbert"]
 
     async def run() -> None:
         async with BenchmarkAPIClient(base_url=base_url) as client:
