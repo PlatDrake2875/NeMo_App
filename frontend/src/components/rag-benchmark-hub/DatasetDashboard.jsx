@@ -10,7 +10,7 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
-import { API_BASE_URL } from "../../lib/api-config";
+import { getApiBaseUrl } from "../../lib/api-config";
 
 export function DatasetDashboard({ onNavigate }) {
   const [stats, setStats] = useState(null);
@@ -21,7 +21,7 @@ export function DatasetDashboard({ onNavigate }) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/processed-datasets/stats`);
+      const response = await fetch(`${getApiBaseUrl()}/api/processed-datasets/stats`);
       if (!response.ok) {
         throw new Error(`Failed to fetch stats: ${response.status}`);
       }

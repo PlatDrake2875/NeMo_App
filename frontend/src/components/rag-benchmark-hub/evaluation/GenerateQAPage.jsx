@@ -25,7 +25,7 @@ import {
   Trash2,
   Database,
 } from "lucide-react";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import ImportWizard from "../datasets/ImportWizard";
 
 export function GenerateQAPage() {
@@ -71,7 +71,7 @@ export function GenerateQAPage() {
   const fetchCollections = async () => {
     setCollectionsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/processed-datasets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/processed-datasets`);
       if (response.ok) {
         const data = await response.json();
         const datasets = data.datasets || data;
@@ -94,7 +94,7 @@ export function GenerateQAPage() {
 
   const fetchEvalDatasets = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/datasets`);
       if (response.ok) {
         const data = await response.json();
         setEvalDatasets(data);
@@ -127,7 +127,7 @@ export function GenerateQAPage() {
     setGenerationResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets/generate`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/datasets/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,7 +167,7 @@ export function GenerateQAPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets/${datasetId}`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/datasets/${datasetId}`, {
         method: "DELETE",
       });
 

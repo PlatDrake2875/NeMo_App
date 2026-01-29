@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * Hook for managing chunking configuration state.
@@ -29,7 +29,7 @@ export function useChunkingConfig() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/chunking/methods`);
+      const response = await fetch(`${getApiBaseUrl()}/api/chunking/methods`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

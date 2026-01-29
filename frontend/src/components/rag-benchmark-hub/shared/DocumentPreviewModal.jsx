@@ -20,7 +20,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import { useTheme } from "../../../hooks/useTheme";
 
 // Configure PDF.js worker
@@ -51,7 +51,7 @@ export function DocumentPreviewModal({ file, onClose }) {
 
       try {
         const response = await fetch(
-          `${API_BASE_URL}/api/raw-datasets/${file.datasetId}/files/${file.id}/preview`
+          `${getApiBaseUrl()}/api/raw-datasets/${file.datasetId}/files/${file.id}/preview`
         );
 
         if (!response.ok) {
@@ -103,7 +103,7 @@ export function DocumentPreviewModal({ file, onClose }) {
   }, [file]);
 
   const handleDownload = () => {
-    const downloadUrl = `${API_BASE_URL}/api/raw-datasets/${file.datasetId}/files/${file.id}/download`;
+    const downloadUrl = `${getApiBaseUrl()}/api/raw-datasets/${file.datasetId}/files/${file.id}/download`;
     window.open(downloadUrl, "_blank");
   };
 

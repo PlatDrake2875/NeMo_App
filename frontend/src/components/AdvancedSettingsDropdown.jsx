@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Separator } from "./ui/separator";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * AdvancedSettingsDropdown - Dialog for configuring RAG settings
@@ -50,7 +50,7 @@ export function AdvancedSettingsDropdown({
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/processed-datasets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/processed-datasets`);
       if (!response.ok) {
         throw new Error("Failed to fetch datasets");
       }

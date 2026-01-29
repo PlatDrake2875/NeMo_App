@@ -20,7 +20,7 @@ import {
 import { Button } from "./ui/button";
 import { Progress } from "./ui/progress";
 import { Alert, AlertDescription } from "./ui/alert";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 export function ModelSwitchDialog({
   open,
@@ -61,7 +61,7 @@ export function ModelSwitchDialog({
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models/switch`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/models/switch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_id: targetModel }),
@@ -87,7 +87,7 @@ export function ModelSwitchDialog({
 
   const pollProgress = async (id) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models/switch/${id}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/models/switch/${id}`);
       if (!response.ok) return;
 
       const data = await response.json();
@@ -115,7 +115,7 @@ export function ModelSwitchDialog({
   const handleCancel = async () => {
     if (taskId && switchState === "switching") {
       try {
-        await fetch(`${API_BASE_URL}/api/models/switch/${taskId}`, {
+        await fetch(`${getApiBaseUrl()}/api/models/switch/${taskId}`, {
           method: "DELETE",
         });
       } catch (err) {

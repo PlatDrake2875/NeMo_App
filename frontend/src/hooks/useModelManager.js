@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 export function useModelManager() {
   // Available models (currently loaded in vLLM)
@@ -35,7 +35,7 @@ export function useModelManager() {
     setModelsError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models`);
+      const response = await fetch(`${getApiBaseUrl()}/api/models`);
       if (!response.ok) {
         throw new Error("Failed to fetch models");
       }
@@ -65,7 +65,7 @@ export function useModelManager() {
    */
   const fetchCachedModels = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models/cached`);
+      const response = await fetch(`${getApiBaseUrl()}/api/models/cached`);
       if (response.ok) {
         const data = await response.json();
         setCachedModels(data);
@@ -80,7 +80,7 @@ export function useModelManager() {
    */
   const checkSwitchStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models/switch/status`);
+      const response = await fetch(`${getApiBaseUrl()}/api/models/switch/status`);
       if (!response.ok) {
         setSwitchStatus(null);
         return;
@@ -131,7 +131,7 @@ export function useModelManager() {
   const switchModel = useCallback(
     async (modelId) => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/models/switch`, {
+        const response = await fetch(`${getApiBaseUrl()}/api/models/switch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model_id: modelId }),
@@ -168,7 +168,7 @@ export function useModelManager() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/models/switch/${switchStatus.id}`,
+        `${getApiBaseUrl()}/api/models/switch/${switchStatus.id}`,
         { method: "DELETE" }
       );
 

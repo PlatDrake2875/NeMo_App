@@ -24,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 export function ProcessedDatasetEditor() {
   const [datasets, setDatasets] = useState([]);
@@ -49,7 +49,7 @@ export function ProcessedDatasetEditor() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/processed-datasets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/processed-datasets`);
       if (!response.ok) {
         throw new Error(`Failed to fetch datasets: ${response.status}`);
       }
@@ -75,7 +75,7 @@ export function ProcessedDatasetEditor() {
       }
 
       const response = await fetch(
-        `${API_BASE_URL}/api/processed-datasets/${datasetId}/chunks?${params}`
+        `${getApiBaseUrl()}/api/processed-datasets/${datasetId}/chunks?${params}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch chunks");
@@ -117,7 +117,7 @@ export function ProcessedDatasetEditor() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/processed-datasets/${datasetId}`,
+        `${getApiBaseUrl()}/api/processed-datasets/${datasetId}`,
         { method: "DELETE" }
       );
 
@@ -142,7 +142,7 @@ export function ProcessedDatasetEditor() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/processed-datasets/${datasetId}/process/stream`,
+        `${getApiBaseUrl()}/api/processed-datasets/${datasetId}/process/stream`,
         { method: "POST" }
       );
 

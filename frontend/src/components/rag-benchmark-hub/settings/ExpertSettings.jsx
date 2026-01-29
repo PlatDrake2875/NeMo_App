@@ -31,7 +31,8 @@ import {
 import { Badge } from "../../ui/badge";
 import { Separator } from "../../ui/separator";
 import { Checkbox } from "../../ui/checkbox";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
+import { ConnectionSettings } from "./ConnectionSettings";
 
 const CONFIRMATION_PHRASE = "DELETE ALL DATA";
 
@@ -60,7 +61,7 @@ export function ExpertSettings() {
     setResetResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/reset`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/admin/reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -146,6 +147,9 @@ export function ExpertSettings() {
           Advanced options for managing your benchmark data. Use with caution.
         </p>
       </div>
+
+      {/* Connection Settings */}
+      <ConnectionSettings />
 
       {/* Warning Banner */}
       <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">

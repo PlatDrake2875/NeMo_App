@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * Custom hook for managing experiment templates.
@@ -19,7 +19,7 @@ export function useTemplates() {
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/templates?include_presets=${includePresets}`
+        `${getApiBaseUrl()}/api/templates?include_presets=${includePresets}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch templates");
@@ -49,7 +49,7 @@ export function useTemplates() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/templates/presets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/templates/presets`);
       if (!response.ok) {
         throw new Error("Failed to fetch presets");
       }
@@ -72,7 +72,7 @@ export function useTemplates() {
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/templates/${encodeURIComponent(name)}`
+        `${getApiBaseUrl()}/api/templates/${encodeURIComponent(name)}`
       );
       if (!response.ok) {
         if (response.status === 404) {
@@ -96,7 +96,7 @@ export function useTemplates() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/templates`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/templates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ template, overwrite }),
@@ -125,7 +125,7 @@ export function useTemplates() {
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/templates/${encodeURIComponent(name)}`,
+        `${getApiBaseUrl()}/api/templates/${encodeURIComponent(name)}`,
         { method: "DELETE" }
       );
       if (!response.ok) {
@@ -151,7 +151,7 @@ export function useTemplates() {
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/templates/export?name=${encodeURIComponent(name)}`,
+        `${getApiBaseUrl()}/api/templates/export?name=${encodeURIComponent(name)}`,
         { method: "POST" }
       );
       if (!response.ok) {
@@ -186,7 +186,7 @@ export function useTemplates() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/templates/import`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/templates/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

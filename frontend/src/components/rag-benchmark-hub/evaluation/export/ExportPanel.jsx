@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "../../../ui/select";
 import { Download, FileJson, FileSpreadsheet, FileText } from "lucide-react";
-import { API_BASE_URL } from "../../../../lib/api-config";
+import { getApiBaseUrl } from "../../../../lib/api-config";
 
 const EXPORT_FORMATS = [
   {
@@ -54,7 +54,7 @@ export function ExportPanel({ runId, runData }) {
 
   const handleExport = () => {
     if (format === "csv") {
-      window.open(`${API_BASE_URL}/api/evaluation/runs/${runId}/csv`, "_blank");
+      window.open(`${getApiBaseUrl()}/api/evaluation/runs/${runId}/csv`, "_blank");
     } else if (format === "json") {
       exportAsJSON();
     } else if (format === "latex") {

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { API_BASE_URL } from "../../../../lib/api-config";
+import { getApiBaseUrl } from "../../../../lib/api-config";
 
 /**
  * Hook for comparing metrics across multiple evaluation runs
@@ -19,7 +19,7 @@ export function useMetricComparison() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs/${runId}`);
       if (!response.ok) throw new Error("Failed to fetch run");
       const data = await response.json();
       setComparisonRuns((prev) => [...prev, data]);

@@ -18,7 +18,7 @@ import {
   Settings,
   TrendingUp,
 } from "lucide-react";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import { StatCard } from "../../shared/StatCard";
 import { useEvalRuns } from "./hooks/useEvalRuns";
 import { EvalRunManager } from "./runs/EvalRunManager";

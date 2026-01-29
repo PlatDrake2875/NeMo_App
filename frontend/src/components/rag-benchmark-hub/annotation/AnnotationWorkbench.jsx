@@ -29,7 +29,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import { QAPairEditor } from "./QAPairEditor";
 import { AnnotationQueue } from "./AnnotationQueue";
 import { AnnotationStats } from "./AnnotationStats";
@@ -52,7 +52,7 @@ export function AnnotationWorkbench({ datasetId }) {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/datasets/${datasetId}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/datasets/${datasetId}`);
       if (!response.ok) throw new Error("Failed to fetch dataset");
       const data = await response.json();
       setDataset(data);

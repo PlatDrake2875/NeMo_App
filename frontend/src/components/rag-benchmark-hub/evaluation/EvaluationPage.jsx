@@ -30,7 +30,7 @@ import {
   Target,
   Clock,
 } from "lucide-react";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import { EvaluationConfigModal } from "./EvaluationConfigModal";
 import { EvaluationJobsPanel } from "./EvaluationJobsPanel";
 
@@ -50,7 +50,7 @@ export function EvaluationPage() {
   // Load a past evaluation run
   const loadEvaluationRun = async (runId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs/${runId}`);
       if (response.ok) {
         const data = await response.json();
         setResults({
@@ -70,7 +70,7 @@ export function EvaluationPage() {
 
   // Export evaluation run as CSV
   const exportRunAsCSV = (runId) => {
-    window.open(`${API_BASE_URL}/api/evaluation/runs/${runId}/csv`, "_blank");
+    window.open(`${getApiBaseUrl()}/api/evaluation/runs/${runId}/csv`, "_blank");
   };
 
   // Toggle row expansion

@@ -29,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 const STATUS_CONFIG = {
   pending: {
@@ -289,7 +289,7 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation, refreshTri
 
   const fetchTasks = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/tasks?limit=50`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/tasks?limit=50`);
       if (response.ok) {
         const data = await response.json();
         setTasks(data);
@@ -301,7 +301,7 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation, refreshTri
 
   const fetchRuns = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs`);
       if (response.ok) {
         const data = await response.json();
         setRuns(data);
@@ -345,7 +345,7 @@ export function EvaluationJobsPanel({ onViewResults, onNewEvaluation, refreshTri
 
   const handleCancel = async (taskId) => {
     try {
-      await fetch(`${API_BASE_URL}/api/evaluation/tasks/${taskId}/cancel`, {
+      await fetch(`${getApiBaseUrl()}/api/evaluation/tasks/${taskId}/cancel`, {
         method: "POST",
       });
       fetchTasks();

@@ -18,7 +18,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useModelManager } from "./hooks/useModelManager";
 // Import utilities
 import { formatSessionName } from "./utils/session";
-import { API_BASE_URL } from "./lib/api-config";
+import { getApiBaseUrl } from "./lib/api-config";
 import { cn } from "./lib/utils";
 
 function App() {
@@ -44,7 +44,7 @@ function App() {
 		handleRegenerateMessage,
 		// Import/Export handlers
 		handleImportConversation,
-	} = useChatSessions(API_BASE_URL);
+	} = useChatSessions(getApiBaseUrl());
 
 	// Model management with switch support
 	const {
@@ -248,7 +248,7 @@ function App() {
 		formData.append("file", file);
 
 		try {
-			const response = await fetch(`${API_BASE_URL}/api/upload`, {
+			const response = await fetch(`${getApiBaseUrl()}/api/upload`, {
 				method: "POST",
 				body: formData,
 			});

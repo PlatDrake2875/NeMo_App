@@ -1,6 +1,6 @@
 // frontend/src/hooks/useGuardrailsTesting.js
 import { useState, useCallback } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * Hook for testing Guardrails configurations
@@ -34,7 +34,7 @@ export function useGuardrailsTesting() {
     setTestHistory((prev) => [testEntry, ...prev].slice(0, 20)); // Keep last 20
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents/${agentName}/test`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/agents/${agentName}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input: input.trim() }),

@@ -11,6 +11,7 @@ export default defineConfig({
 		},
 	},
 	server: {
+		allowedHosts: ["e4405ac19a55.ratio1.link"],
 		proxy: {
 			"/api": {
 				target: "http://backend:8000",

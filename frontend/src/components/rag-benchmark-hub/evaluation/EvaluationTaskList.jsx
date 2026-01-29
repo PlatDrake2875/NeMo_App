@@ -19,7 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../../ui/card";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 const STATUS_ICONS = {
   pending: { icon: Clock, color: "text-yellow-500" },
@@ -38,7 +38,7 @@ export function EvaluationTaskList({ onSelectTask, onViewResults, limit = 10 }) 
     try {
       setLoading(true);
       const response = await fetch(
-        `${API_BASE_URL}/api/evaluation/tasks?limit=${limit}`
+        `${getApiBaseUrl()}/api/evaluation/tasks?limit=${limit}`
       );
       if (!response.ok) {
         throw new Error(`Failed to fetch tasks: ${response.status}`);
