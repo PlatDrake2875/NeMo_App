@@ -16,7 +16,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 export function ImportEvalDatasetsPage({ onImportComplete }) {
   // HuggingFace datasets state
@@ -44,8 +44,8 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
   const fetchAllDatasets = async () => {
     try {
       const [hfResponse, pdfResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/evaluation/import/datasets`),
-        fetch(`${API_BASE_URL}/api/evaluation/import/pdf-datasets`),
+        fetch(`${getApiBaseUrl()}/api/evaluation/import/datasets`),
+        fetch(`${getApiBaseUrl()}/api/evaluation/import/pdf-datasets`),
       ]);
 
       if (hfResponse.ok) {
@@ -100,7 +100,7 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
 
     try {
       const customName = state.customName?.trim() || "";
-      let url = `${API_BASE_URL}/api/evaluation/import/huggingface-as-raw?dataset_id=${encodeURIComponent(datasetId)}&limit=${state.rowCount}`;
+      let url = `${getApiBaseUrl()}/api/evaluation/import/huggingface-as-raw?dataset_id=${encodeURIComponent(datasetId)}&limit=${state.rowCount}`;
       if (customName) {
         url += `&custom_name=${encodeURIComponent(customName)}`;
       }
@@ -153,7 +153,7 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
 
     try {
       const datasetName = state.customName?.trim() || dataset.name;
-      const endpoint = `${API_BASE_URL}/api/evaluation/import/pdf-as-raw?dataset_id=${encodeURIComponent(datasetId)}&custom_name=${encodeURIComponent(datasetName)}`;
+      const endpoint = `${getApiBaseUrl()}/api/evaluation/import/pdf-as-raw?dataset_id=${encodeURIComponent(datasetId)}&custom_name=${encodeURIComponent(datasetName)}`;
 
       const response = await fetch(endpoint, { method: "POST" });
 
@@ -195,7 +195,7 @@ export function ImportEvalDatasetsPage({ onImportComplete }) {
       formData.append("file", uploadFile);
       formData.append("dataset_name", uploadName);
 
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/import/pdf-upload-as-raw`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/import/pdf-upload-as-raw`, {
         method: "POST",
         body: formData,
       });

@@ -41,7 +41,7 @@ import {
   Upload,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import { useTemplates } from "../../../hooks/useTemplates";
 
 // Configuration presets - chunking/embedding now happens at evaluation time
@@ -318,7 +318,7 @@ export function PreprocessingPipeline({ onNavigate }) {
   const fetchRawDatasets = async () => {
     setIsLoadingDatasets(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/raw-datasets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/raw-datasets`);
       if (!response.ok) throw new Error("Failed to fetch datasets");
       const data = await response.json();
       setRawDatasets(data.datasets || []);
@@ -566,7 +566,7 @@ preprocessing:
       // Create the processed dataset
       // Note: chunking and embedding are now configured at evaluation time
       const response = await fetch(
-        `${API_BASE_URL}/api/processed-datasets?start_processing=true`,
+        `${getApiBaseUrl()}/api/processed-datasets?start_processing=true`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

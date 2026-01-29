@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { API_BASE_URL } from "../../../../lib/api-config";
+import { getApiBaseUrl } from "../../../../lib/api-config";
 
 /**
  * Hook for fetching and managing evaluation runs
@@ -16,7 +16,7 @@ export function useEvalRuns() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs`);
       if (!response.ok) throw new Error("Failed to fetch runs");
       const data = await response.json();
       setRuns(data);
@@ -33,7 +33,7 @@ export function useEvalRuns() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs/${runId}`);
       if (!response.ok) throw new Error("Failed to fetch run details");
       const data = await response.json();
       setSelectedRun(runId);
@@ -51,7 +51,7 @@ export function useEvalRuns() {
   // Delete a run
   const deleteRun = useCallback(async (runId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs/${runId}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete run");
@@ -72,7 +72,7 @@ export function useEvalRuns() {
   const rescoreRun = useCallback(async (runId, metrics = null) => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/runs/${runId}/rescore`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/runs/${runId}/rescore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ metrics }),
@@ -96,7 +96,7 @@ export function useEvalRuns() {
 
   // Export run as CSV
   const exportRunCSV = useCallback((runId) => {
-    window.open(`${API_BASE_URL}/api/evaluation/runs/${runId}/csv`, "_blank");
+    window.open(`${getApiBaseUrl()}/api/evaluation/runs/${runId}/csv`, "_blank");
   }, []);
 
   // Clear selection

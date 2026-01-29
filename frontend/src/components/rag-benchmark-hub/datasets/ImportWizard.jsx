@@ -26,7 +26,7 @@ import {
   Loader2,
   Upload,
 } from "lucide-react";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 const IMPORT_FORMATS = [
   {
@@ -94,7 +94,7 @@ export function ImportWizard({ onImportComplete }) {
       const fileBytes = await file.arrayBuffer();
 
       const response = await fetch(
-        `${API_BASE_URL}/api/evaluation/datasets/import?${params}`,
+        `${getApiBaseUrl()}/api/evaluation/datasets/import?${params}`,
         {
           method: "POST",
           headers: {

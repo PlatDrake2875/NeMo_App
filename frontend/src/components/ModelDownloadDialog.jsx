@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
-import { API_BASE_URL } from '../lib/api-config';
+import { getApiBaseUrl } from '../lib/api-config';
 
 /**
  * Dialog component for downloading models from HuggingFace
@@ -54,7 +54,7 @@ export function ModelDownloadDialog({ open, onOpenChange, onDownloadComplete }) 
     setModelMetadata(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models/validate`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/models/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -96,7 +96,7 @@ export function ModelDownloadDialog({ open, onOpenChange, onDownloadComplete }) 
     setDownloadStage('Initializing...');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/models/download`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/models/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

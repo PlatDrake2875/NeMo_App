@@ -33,7 +33,7 @@ import {
   Upload,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 import { DocumentPreviewModal } from "../shared/DocumentPreviewModal";
 
 export function RawDatasetManager() {
@@ -64,7 +64,7 @@ export function RawDatasetManager() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/raw-datasets`);
+      const response = await fetch(`${getApiBaseUrl()}/api/raw-datasets`);
       if (!response.ok) {
         throw new Error(`Failed to fetch datasets: ${response.status}`);
       }
@@ -81,7 +81,7 @@ export function RawDatasetManager() {
   const fetchDatasetDetails = async (datasetId) => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/raw-datasets/${datasetId}?include_files=true`
+        `${getApiBaseUrl()}/api/raw-datasets/${datasetId}?include_files=true`
       );
       if (!response.ok) {
         throw new Error(`Failed to fetch dataset: ${response.status}`);
@@ -103,7 +103,7 @@ export function RawDatasetManager() {
 
     setIsCreating(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/raw-datasets`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/raw-datasets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -144,7 +144,7 @@ export function RawDatasetManager() {
 
     setIsDeleting(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/raw-datasets/${pendingDeleteId}`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/raw-datasets/${pendingDeleteId}`, {
         method: "DELETE",
       });
 
@@ -180,7 +180,7 @@ export function RawDatasetManager() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/raw-datasets/${selectedDataset.id}/files/batch`,
+        `${getApiBaseUrl()}/api/raw-datasets/${selectedDataset.id}/files/batch`,
         {
           method: "POST",
           body: formData,
@@ -210,7 +210,7 @@ export function RawDatasetManager() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/raw-datasets/${selectedDataset.id}/files/${fileId}`,
+        `${getApiBaseUrl()}/api/raw-datasets/${selectedDataset.id}/files/${fileId}`,
         { method: "DELETE" }
       );
 

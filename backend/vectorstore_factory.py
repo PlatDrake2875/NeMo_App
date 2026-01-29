@@ -30,16 +30,57 @@ class VectorStoreFactory:
     _qdrant_client: Optional[QdrantClient] = None
 
     @classmethod
+    def reset_qdrant_client(cls):
+        """Reset the Qdrant client to force recreation with new config."""
+        if cls._qdrant_client is not None:
+            try:
+                cls._qdrant_client.close()
+            except Exception as e:
+                logger.warning(f"Error closing Qdrant client: {e}")
+            cls._qdrant_client = None
+            logger.info("Qdrant client reset - will reconnect with new config on next use")
+
+    @classmethod
     def get_qdrant_client(cls) -> QdrantClient:
         """Get or create a shared Qdrant client instance."""
+        from services.runtime_config import get_runtime_config
+
         if cls._qdrant_client is None:
-            cls._qdrant_client = QdrantClient(
-                host=QDRANT_HOST,
-                port=QDRANT_PORT,
-                api_key=QDRANT_API_KEY,
-                prefer_grpc=QDRANT_PREFER_GRPC,
-            )
-            logger.info(f"Created Qdrant client connecting to {QDRANT_HOST}:{QDRANT_PORT}")
+            runtime_config = get_runtime_config()
+
+            # Use runtime config if available, otherwise fall back to env vars
+            if runtime_config.has_qdrant_override():
+                host = runtime_config.qdrant_host
+                port = runtime_config.qdrant_port
+                https = runtime_config.qdrant_https
+
+                if https:
+                    # For HTTPS URLs, use url parameter instead of host/port
+                    url = f"https://{host}:{port}" if port != 443 else f"https://{host}"
+                    cls._qdrant_client = QdrantClient(
+                        url=url,
+                        api_key=QDRANT_API_KEY,
+                        prefer_grpc=False,  # Use HTTP for HTTPS connections
+                    )
+                else:
+                    cls._qdrant_client = QdrantClient(
+                        host=host,
+                        port=port,
+                        api_key=QDRANT_API_KEY,
+                        prefer_grpc=QDRANT_PREFER_GRPC,
+                    )
+                logger.info(
+                    f"Created Qdrant client with runtime config: {host}:{port} (HTTPS: {https})"
+                )
+            else:
+                # Use default env var config
+                cls._qdrant_client = QdrantClient(
+                    host=QDRANT_HOST,
+                    port=QDRANT_PORT,
+                    api_key=QDRANT_API_KEY,
+                    prefer_grpc=QDRANT_PREFER_GRPC,
+                )
+                logger.info(f"Created Qdrant client connecting to {QDRANT_HOST}:{QDRANT_PORT}")
         return cls._qdrant_client
 
     @classmethod

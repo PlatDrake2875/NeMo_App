@@ -23,7 +23,7 @@ import {
   Search,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 export function HuggingFaceImporter() {
   // Search state
@@ -67,7 +67,7 @@ export function HuggingFaceImporter() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/huggingface/datasets/search?query=${encodeURIComponent(searchQuery)}`
+        `${getApiBaseUrl()}/api/huggingface/datasets/search?query=${encodeURIComponent(searchQuery)}`
       );
 
       if (!response.ok) {
@@ -98,7 +98,7 @@ export function HuggingFaceImporter() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/huggingface/datasets/${encodeURIComponent(dataset.id)}/metadata`
+        `${getApiBaseUrl()}/api/huggingface/datasets/${encodeURIComponent(dataset.id)}/metadata`
       );
 
       if (!response.ok) {
@@ -145,8 +145,8 @@ export function HuggingFaceImporter() {
 
     const endpoint =
       importMode === "raw"
-        ? `${API_BASE_URL}/api/huggingface/import-raw`
-        : `${API_BASE_URL}/api/huggingface/process-direct`;
+        ? `${getApiBaseUrl()}/api/huggingface/import-raw`
+        : `${getApiBaseUrl()}/api/huggingface/process-direct`;
 
     // Build request body matching backend schema
     const hfConfig = {

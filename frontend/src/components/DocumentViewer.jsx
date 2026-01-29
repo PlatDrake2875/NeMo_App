@@ -1,8 +1,8 @@
 // src/components/DocumentViewer.jsx
 import { useEffect, useMemo, useState } from "react";
 import styles from "./DocumentViewer.module.css";
-import { API_BASE_URL } from "../lib/api-config";
-const DOCUMENTS_API_URL = `${API_BASE_URL}/api/documents`;
+import { getApiBaseUrl } from "../lib/api-config";
+const DOCUMENTS_API_URL = `${getApiBaseUrl()}/api/documents`;
 
 export function DocumentViewer() {
 	const [allDocuments, setAllDocuments] = useState([]); // Store all fetched docs

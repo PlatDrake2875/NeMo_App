@@ -1,6 +1,6 @@
 // frontend/src/hooks/useGuardrailsEditor.js
 import { useState, useCallback, useEffect } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * Hook for managing Guardrails Editor state
@@ -31,7 +31,7 @@ export function useGuardrailsEditor() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents`);
+      const response = await fetch(`${getApiBaseUrl()}/api/agents`);
       if (!response.ok) {
         throw new Error(`Failed to fetch agents: ${response.status}`);
       }
@@ -56,7 +56,7 @@ export function useGuardrailsEditor() {
     setValidationResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents/${agentName}/config`);
+      const response = await fetch(`${getApiBaseUrl()}/api/agents/${agentName}/config`);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `Failed to load config: ${response.status}`);
@@ -90,7 +90,7 @@ export function useGuardrailsEditor() {
     setSaveError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents/${selectedAgent.name}/config`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/agents/${selectedAgent.name}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -126,7 +126,7 @@ export function useGuardrailsEditor() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/agents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -168,7 +168,7 @@ export function useGuardrailsEditor() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents/${agentName}`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/agents/${agentName}`, {
         method: "DELETE",
       });
 
@@ -205,7 +205,7 @@ export function useGuardrailsEditor() {
     setValidationResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agents/${selectedAgent.name}/validate-content`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/agents/${selectedAgent.name}/validate-content`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

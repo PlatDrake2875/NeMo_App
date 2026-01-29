@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * Hook for managing documents - CRUD operations and state.
@@ -34,8 +34,8 @@ export function useDocumentManager(dataset = null) {
     setError(null);
     try {
       const url = dataset
-        ? `${API_BASE_URL}/api/documents?dataset=${encodeURIComponent(dataset)}`
-        : `${API_BASE_URL}/api/documents`;
+        ? `${getApiBaseUrl()}/api/documents?dataset=${encodeURIComponent(dataset)}`
+        : `${getApiBaseUrl()}/api/documents`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -70,8 +70,8 @@ export function useDocumentManager(dataset = null) {
   const fetchSources = useCallback(async () => {
     try {
       const url = dataset
-        ? `${API_BASE_URL}/api/documents/sources?dataset=${encodeURIComponent(dataset)}`
-        : `${API_BASE_URL}/api/documents/sources`;
+        ? `${getApiBaseUrl()}/api/documents/sources?dataset=${encodeURIComponent(dataset)}`
+        : `${getApiBaseUrl()}/api/documents/sources`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -88,8 +88,8 @@ export function useDocumentManager(dataset = null) {
   const fetchStats = useCallback(async () => {
     try {
       const url = dataset
-        ? `${API_BASE_URL}/api/documents/stats?dataset=${encodeURIComponent(dataset)}`
-        : `${API_BASE_URL}/api/documents/stats`;
+        ? `${getApiBaseUrl()}/api/documents/stats?dataset=${encodeURIComponent(dataset)}`
+        : `${getApiBaseUrl()}/api/documents/stats`;
 
       const response = await fetch(url);
       if (response.ok) {
@@ -167,7 +167,7 @@ export function useDocumentManager(dataset = null) {
           reject(error);
         });
 
-        xhr.open("POST", `${API_BASE_URL}/api/upload`);
+        xhr.open("POST", `${getApiBaseUrl()}/api/upload`);
         xhr.send(formData);
       });
     } catch (err) {
@@ -182,8 +182,8 @@ export function useDocumentManager(dataset = null) {
     setError(null);
     try {
       const url = dataset
-        ? `${API_BASE_URL}/api/documents/source/${encodeURIComponent(filename)}?dataset=${encodeURIComponent(dataset)}`
-        : `${API_BASE_URL}/api/documents/source/${encodeURIComponent(filename)}`;
+        ? `${getApiBaseUrl()}/api/documents/source/${encodeURIComponent(filename)}?dataset=${encodeURIComponent(dataset)}`
+        : `${getApiBaseUrl()}/api/documents/source/${encodeURIComponent(filename)}`;
 
       const response = await fetch(url, { method: "DELETE" });
 

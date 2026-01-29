@@ -20,7 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../../ui/card";
-import { API_BASE_URL } from "../../../lib/api-config";
+import { getApiBaseUrl } from "../../../lib/api-config";
 
 const STATUS_CONFIG = {
   pending: {
@@ -70,7 +70,7 @@ export function EvaluationTaskProgress({
     if (!taskId) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/evaluation/tasks/${taskId}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/evaluation/tasks/${taskId}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch task: ${response.status}`);
       }
@@ -105,7 +105,7 @@ export function EvaluationTaskProgress({
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/evaluation/tasks/${taskId}/cancel`,
+        `${getApiBaseUrl()}/api/evaluation/tasks/${taskId}/cancel`,
         { method: "POST" }
       );
       if (response.ok) {

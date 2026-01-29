@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE_URL } from "../lib/api-config";
+import { getApiBaseUrl } from "../lib/api-config";
 
 /**
  * Hook for managing vector store configuration and status.
@@ -29,7 +29,7 @@ export function useVectorStoreConfig() {
     setError(null);
     try {
       // Fetch vector store config
-      const configResponse = await fetch(`${API_BASE_URL}/api/config/vector-store`);
+      const configResponse = await fetch(`${getApiBaseUrl()}/api/config/vector-store`);
       if (configResponse.ok) {
         const configData = await configResponse.json();
         setConfig(configData);
@@ -39,7 +39,7 @@ export function useVectorStoreConfig() {
 
       // Try to fetch available embedding models
       try {
-        const modelsResponse = await fetch(`${API_BASE_URL}/api/config/embedding-models`);
+        const modelsResponse = await fetch(`${getApiBaseUrl()}/api/config/embedding-models`);
         if (modelsResponse.ok) {
           const modelsData = await modelsResponse.json();
           setAvailableEmbeddingModels(modelsData.models || []);
@@ -65,7 +65,7 @@ export function useVectorStoreConfig() {
   const checkHealth = useCallback(async () => {
     setConnectionStatus("checking");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/health`);
+      const response = await fetch(`${getApiBaseUrl()}/api/health`);
       if (response.ok) {
         const data = await response.json();
         // Check if vector store is healthy

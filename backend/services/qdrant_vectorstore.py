@@ -24,12 +24,39 @@ class QdrantVectorStoreService:
     """Service class for Qdrant-specific operations."""
 
     def __init__(self):
-        self.client = QdrantClient(
-            host=QDRANT_HOST,
-            port=QDRANT_PORT,
-            api_key=QDRANT_API_KEY,
-            prefer_grpc=QDRANT_PREFER_GRPC,
-        )
+        from services.runtime_config import get_runtime_config
+
+        runtime_config = get_runtime_config()
+
+        # Use runtime config if available, otherwise fall back to env vars
+        if runtime_config.has_qdrant_override():
+            host = runtime_config.qdrant_host
+            port = runtime_config.qdrant_port
+            https = runtime_config.qdrant_https
+
+            if https:
+                url = f"https://{host}:{port}" if port != 443 else f"https://{host}"
+                self.client = QdrantClient(
+                    url=url,
+                    api_key=QDRANT_API_KEY,
+                    prefer_grpc=False,
+                )
+            else:
+                self.client = QdrantClient(
+                    host=host,
+                    port=port,
+                    api_key=QDRANT_API_KEY,
+                    prefer_grpc=QDRANT_PREFER_GRPC,
+                )
+            logger.info(f"QdrantVectorStoreService using runtime config: {host}:{port}")
+        else:
+            self.client = QdrantClient(
+                host=QDRANT_HOST,
+                port=QDRANT_PORT,
+                api_key=QDRANT_API_KEY,
+                prefer_grpc=QDRANT_PREFER_GRPC,
+            )
+            logger.info(f"QdrantVectorStoreService using env config: {QDRANT_HOST}:{QDRANT_PORT}")
 
     def get_all_documents(
         self,
@@ -220,3 +247,15 @@ def get_qdrant_service() -> QdrantVectorStoreService:
     if _qdrant_service is None:
         _qdrant_service = QdrantVectorStoreService()
     return _qdrant_service
+
+
+def reset_qdrant_service():
+    """Reset the Qdrant service to force recreation with new config."""
+    global _qdrant_service
+    if _qdrant_service is not None:
+        try:
+            _qdrant_service.client.close()
+        except Exception as e:
+            logger.warning(f"Error closing Qdrant service client: {e}")
+    _qdrant_service = None
+    logger.info("Qdrant service reset - will reconnect with new config on next use")
