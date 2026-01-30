@@ -133,7 +133,7 @@ class QAGenerationConfig(BaseModel):
 class EvaluationConfig(BaseModel):
     """Evaluation run configuration."""
 
-    preset: Optional[Literal["quick", "balanced", "high_quality"]] = None
+    preset: Optional[Literal["quick", "balanced", "high_quality", "romanian"]] = None
     chunking: Optional[ChunkingConfig] = None
     use_rag: bool = True
     use_colbert: bool = False
@@ -297,5 +297,11 @@ PRESETS = {
         "embedder": "BAAI/bge-small-en-v1.5",
         "top_k": 7,
         "use_colbert": True,
+    },
+    "romanian": {
+        "chunking": ChunkingConfig(method="recursive", chunk_size=1500, chunk_overlap=300),
+        "embedder": "BlackKakapo/stsb-xlm-r-multilingual-ro",
+        "top_k": 5,
+        "use_colbert": False,
     },
 }

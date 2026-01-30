@@ -53,6 +53,21 @@ from database_models import get_db_session
 from services.metrics.context_precision import ContextPrecisionMetric
 from services.metrics.precision_recall_at_k import PrecisionAtK, RecallAtK
 from rag_components import get_rag_context_prefix, format_docs
+
+
+@contextmanager
+def get_db():
+    """Context manager for database sessions."""
+    SessionLocal = get_session_maker()
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 from config import VLLM_BASE_URL, VLLM_MODEL
 import httpx
 
