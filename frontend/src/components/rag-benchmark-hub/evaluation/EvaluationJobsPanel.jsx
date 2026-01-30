@@ -154,6 +154,11 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
                   <span className="ml-2 font-mono">• {task.config.llm_model.split("/").pop()}</span>
                 )}
               </p>
+              {(task.result_run_id || task.run_id) && (
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                  Run ID: <span className="text-foreground select-all">{task.result_run_id || task.run_id}</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -199,6 +204,7 @@ function JobCard({ task, onViewResults, onCancel, onRetry }) {
         {/* Error message for failed tasks */}
         {task.error_message && (
           <div className="mb-3 p-2 bg-red-100 dark:bg-red-900/20 rounded text-xs text-red-700 dark:text-red-400">
+            <div className="font-mono text-muted-foreground mb-1">Task ID: {task.id}</div>
             {task.error_message}
           </div>
         )}
